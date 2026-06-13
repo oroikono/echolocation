@@ -270,15 +270,29 @@ async function loadModel(){
       setStatus(`Downloading depth model… ${Math.round((e.loaded/e.total)*100)}%`);
     }
   };
+  // warm-up forces the backend to actually initialize NOW, so a lazy
+  // WebGPU failure (e.g. webgpuInit undefined on some mobile Chrome builds)
+  // is caught here and we can fall back to WASM instead of crashing mid-run.
+  const warm = async est=>{
+    const c=document.createElement('canvas'); c.width=64; c.height=64;
+    const x=c.getContext('2d'); x.fillStyle='#777'; x.fillRect(0,0,64,64);
+    await est(c);
+  };
+  const build = async (device,dtype)=>{
+    const est = await pipeline('depth-estimation','onnx-community/depth-anything-v2-small',
+      { device, dtype, progress_callback:onProgress });
+    await warm(est);
+    return est;
+  };
   try{
     if(!navigator.gpu) throw new Error('no-webgpu');
-    estimator = await pipeline('depth-estimation','onnx-community/depth-anything-v2-small',
-      { device:'webgpu', dtype:'fp16', progress_callback:onProgress });
+    setStatus('Initializing WebGPU…');
+    estimator = await build('webgpu','fp16');
     enginePill.textContent='engine: WebGPU';
   }catch(err){
-    setStatus('WebGPU unavailable — using WASM (slower).');
-    estimator = await pipeline('depth-estimation','onnx-community/depth-anything-v2-small',
-      { device:'wasm', dtype:'q8', progress_callback:onProgress });
+    console.warn('WebGPU path failed, falling back to WASM:', err);
+    setStatus('WebGPU unavailable — loading WASM backend (slower but works)…');
+    estimator = await build('wasm','q8');
     enginePill.textContent='engine: WASM';
   }
   dlBar.style.width='100%';
@@ -415,9 +429,7 @@ startBtn.addEventListener('click', async ()=>{
     await startCamera();
     setStatus('Loading depth model…');
     buildAudio(); await ctx.resume();          // satisfy autoplay inside the gesture
-    await loadModel();
-    // warm-up
-    gctx.drawImage(video,0,0,grab.width,grab.height); await estimator(grab);
+    await loadModel();   // includes a warm-up inference + backend fallback
     running=true;
     startBtn.textContent='Running'; muteBtn.disabled=false;
     describeBtn.disabled = !apiKey;
