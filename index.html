@@ -93,7 +93,7 @@
         <button class="ghost" id="keyBtn">API key</button>
       </div>
       <div class="bar" style="margin-top:12px"><i id="dl"></i></div>
-      <div id="status" style="margin-top:8px">Tap Start — first run downloads ~50&nbsp;MB depth model (cached after).</div>
+      <div id="status" style="margin-top:8px">Build v3 · WASM default. Tap Start — first run downloads the depth model (cached after).</div>
     </div>
 
     <!-- key card -->
@@ -130,7 +130,7 @@ const ALPHA = 0.3;
 
 // grab canvas (model input)
 const grab = document.createElement('canvas');
-grab.width = 384; grab.height = 288;
+grab.width = 256; grab.height = 192;   // smaller = faster on WASM
 const gctx = grab.getContext('2d', { willReadFrequently:true });
 
 // ---------- mapping segmented control ----------
@@ -295,14 +295,22 @@ async function loadModel(){
     await warm(est);
     return est;
   };
-  try{
-    if(!navigator.gpu) throw new Error('no-webgpu');
-    setStatus('Initializing WebGPU…');
-    estimator = await build('webgpu','fp16');
-    enginePill.textContent='engine: WebGPU';
-  }catch(err){
-    console.warn('WebGPU path failed, falling back to WASM:', err);
-    setStatus('WebGPU unavailable — loading WASM backend (slower but works)…');
+  // WASM is the reliable default — the WebGPU backend in transformers.js
+  // crashes ("webgpuInit is not a function") on some mobile Chrome builds.
+  // Opt into WebGPU only with ?gpu=1 in the URL, and still fall back if it fails.
+  const wantGpu = new URLSearchParams(location.search).has('gpu');
+  if(wantGpu && navigator.gpu){
+    try{
+      setStatus('Trying WebGPU…');
+      estimator = await build('webgpu','fp16');
+      enginePill.textContent='engine: WebGPU';
+    }catch(err){
+      console.warn('WebGPU failed, using WASM:', err);
+      estimator = null;
+    }
+  }
+  if(!estimator){
+    setStatus('Loading WASM backend (works everywhere)…');
     estimator = await build('wasm','q8');
     enginePill.textContent='engine: WASM';
   }
