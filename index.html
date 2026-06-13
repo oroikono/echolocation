@@ -14,6 +14,7 @@
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
   #stage{position:fixed;inset:0;display:flex;flex-direction:column}
   video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.55;filter:saturate(.8)}
+  #boxCanvas{position:absolute;inset:0;width:100%;height:100%;z-index:1;pointer-events:none}
   #depthCanvas{position:absolute;right:10px;bottom:10px;width:128px;height:96px;border:1px solid var(--line);
     border-radius:8px;background:#000;opacity:.9;z-index:3}
   .overlay{position:relative;z-index:2;display:flex;flex-direction:column;height:100%;
@@ -53,6 +54,7 @@
 <body>
 <div id="stage">
   <video id="video" playsinline muted></video>
+  <canvas id="boxCanvas"></canvas>
   <canvas id="depthCanvas" width="128" height="96"></canvas>
 
   <div class="overlay">
@@ -92,8 +94,13 @@
         <button class="ghost" id="flipBtn" disabled>Flip cam</button>
         <button class="ghost" id="keyBtn">API key</button>
       </div>
+      <div class="row" style="margin-top:10px">
+        <button class="ghost" id="detectBtn" disabled>Detect: on</button>
+        <button class="ghost" id="speakBtn" disabled>Speak: on</button>
+      </div>
+      <small class="note">Live detector knows ~80 everyday objects (person, chair, bottle, laptop, cup…). A bare “hand” reads as person/none — tap the Claude button for open-vocabulary naming.</small>
       <div class="bar" style="margin-top:12px"><i id="dl"></i></div>
-      <div id="status" style="margin-top:8px">Build v3 · WASM default. Tap Start — first run downloads the depth model (cached after).</div>
+      <div id="status" style="margin-top:8px">Build v4 · WASM + live object detection. Tap Start — first run downloads the depth + detector models (cached after).</div>
     </div>
 
     <!-- key card -->
@@ -115,23 +122,32 @@ env.allowLocalModels = false;
 
 // ---------- DOM ----------
 const $ = s => document.querySelector(s);
-const video = $('#video'), depthCanvas = $('#depthCanvas');
+const video = $('#video'), depthCanvas = $('#depthCanvas'), boxCanvas = $('#boxCanvas');
 const dctx = depthCanvas.getContext('2d');
+const bctx = boxCanvas.getContext('2d');
 const startBtn = $('#startBtn'), describeBtn = $('#describeBtn'), muteBtn = $('#muteBtn');
+const detectBtn = $('#detectBtn'), speakBtn = $('#speakBtn');
 const statusEl = $('#status'), dlBar = $('#dl'), enginePill = $('#enginePill'), sayEl = $('#say');
 const zoneEls = { left:$('#zL'), center:$('#zC'), right:$('#zR') };
 
 // ---------- state ----------
-let estimator=null, stream=null, running=false, muted=false, mapping='hum';
+let estimator=null, detector=null, stream=null, running=false, muted=false, mapping='hum';
 let apiKey='';
-let semantic=null, semanticUntil=0;      // Claude's reshaping overlay
+let semantic=null, semanticUntil=0;      // reshaping overlay (fed by BOTH detector + Claude)
+let lastDepth=null;                       // most recent depth map, for per-box distance
+let detectOn=true, ttsOn=true, claudeBusy=false;
 const ema = { left:0, center:0, right:0 };
 const ALPHA = 0.3;
 
-// grab canvas (model input)
+// grab canvas (depth model input)
 const grab = document.createElement('canvas');
 grab.width = 256; grab.height = 192;   // smaller = faster on WASM
 const gctx = grab.getContext('2d', { willReadFrequently:true });
+
+// grab canvas (detector input — kept modest for WASM speed)
+const dgrab = document.createElement('canvas');
+dgrab.width = 320; dgrab.height = 240;
+const dgctx = dgrab.getContext('2d', { willReadFrequently:true });
 
 // ---------- mapping segmented control ----------
 $('#mapSeg').addEventListener('click', e=>{
@@ -317,6 +333,24 @@ async function loadModel(){
   dlBar.style.width='100%';
 }
 
+// Live object detector — names objects so the app reacts ("person, close, left"),
+// where the depth model alone can only say how far. COCO-80 vocabulary.
+async function loadDetector(){
+  const onP = e=>{
+    if(e.status==='progress' && e.total)
+      setStatus(`Downloading detector… ${Math.round((e.loaded/e.total)*100)}%`);
+  };
+  const tryBuild = dtype => pipeline('object-detection','Xenova/yolos-tiny',
+    { device:'wasm', dtype, progress_callback:onP });
+  try{
+    detector = await tryBuild('q8');
+  }catch(err){
+    console.warn('detector q8 failed, retrying fp32', err);
+    try{ detector = await tryBuild(undefined); }
+    catch(err2){ console.warn('detector unavailable', err2); detector=null; }
+  }
+}
+
 // sample three vertical bands; proximity = high-percentile of (near) depth.
 // DA-V2 output: brighter (larger value) = nearer.
 function readZones(depth){
@@ -368,6 +402,7 @@ async function loop(){
   try{
     gctx.drawImage(video,0,0,grab.width,grab.height);
     const { depth } = await estimator(grab);
+    lastDepth = depth;
     const raw = readZones(depth);
     for(const z of ['left','center','right']) ema[z] = ALPHA*raw[z] + (1-ALPHA)*ema[z];
     updateHum();
@@ -376,6 +411,126 @@ async function loop(){
   }catch(err){ console.error(err); }
   // throttle ~10fps
   setTimeout(()=>requestAnimationFrame(loop), 90);
+}
+
+// ============================================================
+//  LIVE OBJECT DETECTION  (the "oh, a chair" reflex)
+//  Runs on its own throttle so the depth soundscape keeps going.
+//  Feeds the SAME semantic overlay Claude uses, so timbres recolor for free.
+// ============================================================
+const DET_THRESH = 0.5;     // min confidence
+const DET_GAP    = 850;     // ms rest between detections (keeps depth loop alive)
+let detTimer=null;
+
+// COCO label → timbre bucket (person stands out; everything else is an "object")
+function cocoToBucket(label){ return label==='person' ? 'person' : 'object'; }
+
+async function detectLoop(){
+  if(!running){ return; }
+  if(detectOn && detector){
+    try{
+      dgctx.drawImage(video,0,0,dgrab.width,dgrab.height);
+      const dets = await detector(dgrab, { threshold:DET_THRESH, percentage:true });
+      handleDetections(dets);
+    }catch(err){ console.warn('detect', err); }
+  }else{
+    bctx.clearRect(0,0,boxCanvas.width,boxCanvas.height);
+  }
+  detTimer = setTimeout(detectLoop, DET_GAP);
+}
+
+// median "nearness" (0..1) of the depth map inside a normalized box
+function boxProximity(b){
+  if(!lastDepth) return 0;
+  const { data, width, height } = lastDepth;
+  const x0=Math.max(0,Math.floor(b.xmin*width)),  x1=Math.min(width, Math.ceil(b.xmax*width));
+  const y0=Math.max(0,Math.floor(b.ymin*height)), y1=Math.min(height,Math.ceil(b.ymax*height));
+  const vals=[];
+  for(let y=y0;y<y1;y+=2) for(let x=x0;x<x1;x+=2) vals.push(data[y*width+x]);
+  if(!vals.length) return 0;
+  vals.sort((a,b)=>a-b);
+  return (vals[Math.floor(vals.length*0.6)]||0)/255;   // 60th pct = robust near-surface
+}
+
+function handleDetections(dets){
+  bctx.clearRect(0,0,boxCanvas.width,boxCanvas.height);
+  if(!dets || !dets.length){ return; }
+  const perZone={}; let head=null;
+  for(const d of dets){
+    const b=d.box;
+    const cx=(b.xmin+b.xmax)/2;
+    const side = cx<0.34?'left' : cx>0.66?'right' : 'center';
+    const p = boxProximity(b);
+    const det={ label:d.label, score:d.score, side, p, b };
+    drawBox(det);
+    if(!perZone[side] || p>perZone[side].p) perZone[side]=det;
+    if(!head || p>head.p) head=det;
+  }
+  // feed the overlay (same channel as Claude) → hum/beep recolor by class for ~2s
+  const sem={left:null,center:null,right:null};
+  for(const z in perZone) sem[z]=cocoToBucket(perZone[z].label);
+  semantic=sem; semanticUntil=performance.now()+2200;
+  // headline: nearest object gets an earcon, a caption, and (throttled) a spoken name
+  if(head && head.p>0.18){
+    earcon(head.side, head.p, head.label);
+    sayEl.innerHTML = `<span class="lab">${head.label}</span> ${distPhrase(head.p)} · ~${distMeters(head.p).toFixed(1)} m · ${SIDE[head.side]}`;
+    if(ttsOn && !claudeBusy) maybeAnnounce(head);
+  }
+}
+
+// map normalized source coords → on-screen px, accounting for object-fit:cover + front-cam mirror
+function coverMap(nx,ny,nw,nh){
+  const sw=video.videoWidth||4, sh=video.videoHeight||3;
+  const vw=boxCanvas.width, vh=boxCanvas.height;
+  const scale=Math.max(vw/sw, vh/sh);
+  const rw=sw*scale, rh=sh*scale;
+  const ox=(rw-vw)/2, oy=(rh-vh)/2;
+  let x=nx*rw-ox, y=ny*rh-oy, w=nw*rw, h=nh*rh;
+  if(facing==='user') x = vw-(x+w);    // match mirrored preview; labels stay readable
+  return {x,y,w,h};
+}
+function sizeBoxCanvas(){ boxCanvas.width=window.innerWidth; boxCanvas.height=window.innerHeight; }
+window.addEventListener('resize', sizeBoxCanvas);
+
+function drawBox(det){
+  const m=coverMap(det.b.xmin, det.b.ymin, det.b.xmax-det.b.xmin, det.b.ymax-det.b.ymin);
+  const near=det.p>0.55, col=near?'#ff3b6b':'#39d98a';
+  bctx.lineWidth=2; bctx.strokeStyle=col;
+  bctx.strokeRect(m.x,m.y,m.w,m.h);
+  const txt=`${det.label} ${distMeters(det.p).toFixed(1)}m`;
+  bctx.font='600 13px -apple-system,sans-serif';
+  const tw=bctx.measureText(txt).width+10, ty=Math.max(0,m.y-18);
+  bctx.fillStyle=col; bctx.fillRect(m.x,ty,tw,18);
+  bctx.fillStyle='#0e0f12'; bctx.fillText(txt, m.x+5, ty+13);
+}
+
+// short distinct blip per object — timbre by class, pitch nudged per label, panned to its side
+function earcon(side,p,label){
+  if(!ctx||muted) return;
+  const tb=TIMBRE[cocoToBucket(label)]||TIMBRE.default;
+  const hash=[...label].reduce((a,c)=>a+c.charCodeAt(0),0);
+  const t=ctx.currentTime+0.01;
+  const o=ctx.createOscillator(), g=ctx.createGain(), pan=ctx.createStereoPanner();
+  o.type=tb.wave;
+  o.frequency.value=tb.base*1.5 + p*300 + (hash%6)*22;
+  pan.pan.value = side==='left'?-0.85 : side==='right'?0.85 : 0;
+  o.connect(g).connect(pan).connect(master);
+  const amp=Math.min(0.5, 0.22+p*0.25)*tb.mult;
+  g.gain.setValueAtTime(0.0001,t);
+  g.gain.exponentialRampToValueAtTime(amp,t+0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+0.17);
+  o.start(t); o.stop(t+0.19);
+}
+
+// speak the nearest object, but rate-limited so it isn't a chatterbox
+let lastSpokenLabel='', lastSpeakAt=0;
+function maybeAnnounce(head){
+  const now=performance.now();
+  const changed = head.label!==lastSpokenLabel;
+  if(changed ? (now-lastSpeakAt>1200) : (now-lastSpeakAt>4000)){
+    speak(`${head.label}, ${distPhrase(head.p)}, about ${distMeters(head.p).toFixed(1)} meters, ${SIDE[head.side]}`);
+    lastSpokenLabel=head.label; lastSpeakAt=now;
+  }
 }
 
 // ============================================================
@@ -390,6 +545,7 @@ class is one of: "person","wall","door","step","object", or null if that third o
 
 async function describe(){
   if(!apiKey){ $('#keyCard').classList.remove('hidden'); return; }
+  claudeBusy=true;   // hush the live detector while Claude speaks
   describeBtn.disabled=true; const old=describeBtn.textContent; describeBtn.textContent='…thinking';
   try{
     const snap=document.createElement('canvas'); snap.width=512; snap.height=384;
@@ -429,14 +585,21 @@ async function describe(){
     }
     const sentence = spoken.length ? spoken.join('. ') : (parsed.speak || 'Path looks clear');
     sayEl.innerHTML = (parsed.speak ? `${parsed.speak}<br>` : '') + parts.join('<br>');
-    speak(sentence);
+    speak(sentence, true);
   }catch(err){
-    sayEl.textContent = 'Claude error: '+err.message;
+    sayEl.textContent = 'Claude error: '+err.message; claudeBusy=false;
   }finally{
     describeBtn.textContent=old; describeBtn.disabled=false;
   }
 }
-function speak(t){ try{ const u=new SpeechSynthesisUtterance(t); u.rate=1.1; speechSynthesis.cancel(); speechSynthesis.speak(u);}catch{} }
+// hold=true keeps the detector quiet until this utterance finishes
+function speak(t, hold){
+  try{
+    const u=new SpeechSynthesisUtterance(t); u.rate=1.1;
+    if(hold){ claudeBusy=true; u.onend=u.onerror=()=>{ claudeBusy=false; }; }
+    speechSynthesis.cancel(); speechSynthesis.speak(u);
+  }catch{ if(hold) claudeBusy=false; }
+}
 
 // ============================================================
 //  WIRING
@@ -449,14 +612,35 @@ startBtn.addEventListener('click', async ()=>{
     setStatus('Loading depth model…');
     buildAudio(); await ctx.resume();          // satisfy autoplay inside the gesture
     await loadModel();   // includes a warm-up inference + backend fallback
+    setStatus('Loading object detector…');
+    await loadDetector();
     running=true;
+    sizeBoxCanvas();
     startBtn.textContent='Running'; muteBtn.disabled=false; $('#flipBtn').disabled=false;
+    detectBtn.disabled=!detector; speakBtn.disabled=!detector;
+    if(!detector){ detectOn=false; detectBtn.textContent='Detect: n/a'; }
     describeBtn.disabled = !apiKey;
-    setStatus('Live. Point at the room. Tap the Claude button for a scene description.');
+    setStatus(detector
+      ? 'Live. Point at the room — it names what it sees. Claude button for a full scene read.'
+      : 'Live (depth only — detector did not load). Claude button still works.');
     loop();
+    detectLoop();
   }catch(err){
     setStatus('Error: '+err.message); startBtn.disabled=false;
   }
+});
+
+// Detect / Speak toggles (perf + listening-fatigue control)
+detectBtn.addEventListener('click', ()=>{
+  if(!detector) return;
+  detectOn=!detectOn;
+  detectBtn.textContent='Detect: '+(detectOn?'on':'off');
+  if(!detectOn) bctx.clearRect(0,0,boxCanvas.width,boxCanvas.height);
+});
+speakBtn.addEventListener('click', ()=>{
+  ttsOn=!ttsOn;
+  speakBtn.textContent='Speak: '+(ttsOn?'on':'off');
+  if(!ttsOn) try{ speechSynthesis.cancel(); }catch{}
 });
 describeBtn.addEventListener('click', describe);
 $('#flipBtn').addEventListener('click', flipCamera);
