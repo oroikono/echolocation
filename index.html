@@ -3,50 +3,51 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-<title>Echolocation — depth → sound + Claude semantic prior</title>
+<title>Echolocation v5 — AI-curated, world-locked auditory scene</title>
 <style>
   :root{
     --bg:#0e0f12; --panel:#16181d; --line:#262a32; --text:#e8e9ed;
-    --muted:#9aa0ab; --accent:#cc1557; --accent2:#7b1d9b; --ok:#39d98a; --warn:#ffb020;
+    --muted:#9aa0ab; --accent:#cc1557; --accent2:#7b1d9b; --ok:#39d98a; --warn:#ff3b6b;
   }
   *{box-sizing:border-box}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
   #stage{position:fixed;inset:0;display:flex;flex-direction:column}
-  video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.55;filter:saturate(.8)}
+  video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.5;filter:saturate(.8)}
   #boxCanvas{position:absolute;inset:0;width:100%;height:100%;z-index:1;pointer-events:none}
   #depthCanvas{position:absolute;right:10px;bottom:10px;width:128px;height:96px;border:1px solid var(--line);
     border-radius:8px;background:#000;opacity:.9;z-index:3}
   .overlay{position:relative;z-index:2;display:flex;flex-direction:column;height:100%;
     padding:16px;gap:12px;pointer-events:none}
   .overlay > *{pointer-events:auto}
-  header{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  header{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
   h1{font-size:15px;margin:0;font-weight:600;letter-spacing:.2px}
-  .pill{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:3px 9px;background:#0008}
+  .pill{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:3px 9px;background:#0008;white-space:nowrap}
   .spacer{flex:1}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;backdrop-filter:blur(6px);background:#16181dcc}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;background:#16181dcc;backdrop-filter:blur(6px)}
   label{font-size:12px;color:var(--muted);display:block;margin-bottom:5px}
   input[type=password],input[type=text]{width:100%;padding:10px;border-radius:9px;border:1px solid var(--line);
     background:#0d0e12;color:var(--text);font-size:14px}
   .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
   button{appearance:none;border:1px solid var(--line);background:#1d2027;color:var(--text);
-    font-size:14px;font-weight:600;padding:12px 16px;border-radius:11px;cursor:pointer;flex:1;min-width:120px}
+    font-size:14px;font-weight:600;padding:12px 16px;border-radius:11px;cursor:pointer;flex:1;min-width:110px}
   button.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border:none}
-  button.ghost{background:#1419;}
+  button.ghost{background:#1419}
+  button.on{outline:2px solid var(--accent)}
   button:disabled{opacity:.45;cursor:not-allowed}
   .seg{display:flex;border:1px solid var(--line);border-radius:11px;overflow:hidden;flex:1}
-  .seg button{border:none;border-radius:0;background:#15171c;flex:1}
-  .seg button.on{background:var(--accent);color:#fff}
-  #say{font-size:14px;line-height:1.45;min-height:1.2em}
+  .seg button{border:none;border-radius:0;background:#15171c;flex:1;min-width:0}
+  .seg button.on{background:var(--accent);color:#fff;outline:none}
+  #say{font-size:14px;line-height:1.45;min-height:1.2em;margin-top:10px}
   #say .lab{color:var(--accent);font-weight:700}
-  #status{font-size:12px;color:var(--muted)}
-  .bar{height:6px;border-radius:6px;background:#0d0e12;overflow:hidden;border:1px solid var(--line)}
+  #say .haz{color:var(--warn);font-weight:700}
+  #status{font-size:12px;color:var(--muted);margin-top:8px}
+  .bar{height:6px;border-radius:6px;background:#0d0e12;overflow:hidden;border:1px solid var(--line);margin-top:12px}
   .bar > i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .2s}
   .zones{display:flex;gap:6px}
-  .zone{flex:1;height:34px;border-radius:8px;border:1px solid var(--line);background:#0d0e12;position:relative;overflow:hidden}
+  .zone{flex:1;height:26px;border-radius:8px;border:1px solid var(--line);background:#0d0e12;position:relative;overflow:hidden}
   .zone > i{position:absolute;inset:auto 0 0 0;height:0%;background:linear-gradient(0deg,var(--accent),var(--accent2));transition:height .12s}
   .zone span{position:absolute;top:3px;left:6px;font-size:10px;color:var(--muted)}
-  .tag{position:absolute;bottom:3px;left:6px;font-size:10px;color:#fff;font-weight:700;text-shadow:0 1px 2px #000}
   small.note{color:var(--muted);font-size:11px;display:block;margin-top:8px;line-height:1.4}
   .hidden{display:none}
 </style>
@@ -59,55 +60,56 @@
 
   <div class="overlay">
     <header>
-      <h1>Echolocation <span style="color:var(--muted);font-weight:400">· depth→sound + Claude</span></h1>
+      <h1>Echolocation <span style="color:var(--muted);font-weight:400">· v5 AI-curated scene</span></h1>
       <span class="pill" id="enginePill">engine: —</span>
+      <span class="pill" id="hdgPill">heading: —</span>
     </header>
 
     <div class="spacer"></div>
 
-    <!-- live zones -->
+    <!-- live readout -->
     <div class="card" id="liveCard">
-      <label>Proximity per zone (nearest = taller)</label>
+      <label>Ambient depth bed (nearest = taller)</label>
       <div class="zones">
-        <div class="zone" id="zL"><span>L</span><i></i><div class="tag"></div></div>
-        <div class="zone" id="zC"><span>C</span><i></i><div class="tag"></div></div>
-        <div class="zone" id="zR"><span>R</span><i></i><div class="tag"></div></div>
+        <div class="zone" id="zL"><span>L</span><i></i></div>
+        <div class="zone" id="zC"><span>C</span><i></i></div>
+        <div class="zone" id="zR"><span>R</span><i></i></div>
       </div>
-      <div id="say" style="margin-top:10px"></div>
+      <div id="say"></div>
     </div>
 
     <!-- controls -->
     <div class="card">
       <div class="row" style="margin-bottom:10px">
         <div class="seg" id="mapSeg">
-          <button data-map="hum" class="on">Hum</button>
-          <button data-map="beep">Beep-rate</button>
+          <button data-map="hum" class="on">Hum bed</button>
+          <button data-map="beep">Beep bed</button>
           <button data-map="both">Both</button>
         </div>
       </div>
       <div class="row">
         <button class="primary" id="startBtn">Start</button>
-        <button id="describeBtn" disabled>What's there? (Claude)</button>
+        <button id="curateBtn" disabled>What's there? (Claude)</button>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="ghost on" id="autoBtn" disabled>Auto-curate: on</button>
+        <button class="ghost on" id="lockBtn" disabled>World-lock: on</button>
       </div>
       <div class="row" style="margin-top:10px">
         <button class="ghost" id="muteBtn" disabled>Mute</button>
         <button class="ghost" id="flipBtn" disabled>Flip cam</button>
         <button class="ghost" id="keyBtn">API key</button>
       </div>
-      <div class="row" style="margin-top:10px">
-        <button class="ghost" id="detectBtn" disabled>Detect: on</button>
-        <button class="ghost" id="speakBtn" disabled>Speak: on</button>
-      </div>
-      <small class="note">Live detector knows ~80 everyday objects (person, chair, bottle, laptop, cup…). A bare “hand” reads as person/none — tap the Claude button for open-vocabulary naming.</small>
-      <div class="bar" style="margin-top:12px"><i id="dl"></i></div>
-      <div id="status" style="margin-top:8px">Build v4 · WASM + live object detection. Tap Start — first run downloads the depth + detector models (cached after).</div>
+      <small class="note">Depth runs on-device (the "where"). Claude curates the "what" every few seconds — open-vocabulary, names a person, a curb, a doorway. Hazards <b>loom</b>; objects stay <b>world-locked</b> as you turn the phone.</small>
+      <div class="bar"><i id="dl"></i></div>
+      <div id="status">Build v5 · WASM + Claude curator. Tap Start — first run downloads the depth model (cached after).</div>
     </div>
 
     <!-- key card -->
     <div class="card hidden" id="keyCard">
-      <label for="key">Anthropic API key (kept in memory only, never stored)</label>
+      <label for="key">Anthropic API key (Console / sprint credits — kept in memory only)</label>
       <input id="key" type="password" placeholder="sk-ant-..." autocomplete="off" />
-      <small class="note">Demo-only: the key is sent from the browser. For anything public, put a serverless proxy in front. Rotate this key after the sprint.</small>
+      <small class="note">This is an API key (console.anthropic.com), NOT a Claude.ai subscription. Demo-only: the key is sent from the browser — use a serverless proxy for anything public, and rotate after the sprint.</small>
       <div class="row" style="margin-top:10px">
         <button class="primary" id="keySave">Save</button>
         <button class="ghost" id="keyClose">Close</button>
@@ -122,37 +124,66 @@ env.allowLocalModels = false;
 
 // ---------- DOM ----------
 const $ = s => document.querySelector(s);
-const video = $('#video'), depthCanvas = $('#depthCanvas'), boxCanvas = $('#boxCanvas');
-const dctx = depthCanvas.getContext('2d');
-const bctx = boxCanvas.getContext('2d');
-const startBtn = $('#startBtn'), describeBtn = $('#describeBtn'), muteBtn = $('#muteBtn');
-const detectBtn = $('#detectBtn'), speakBtn = $('#speakBtn');
-const statusEl = $('#status'), dlBar = $('#dl'), enginePill = $('#enginePill'), sayEl = $('#say');
-const zoneEls = { left:$('#zL'), center:$('#zC'), right:$('#zR') };
+const video=$('#video'), depthCanvas=$('#depthCanvas'), boxCanvas=$('#boxCanvas');
+const dctx=depthCanvas.getContext('2d'), bctx=boxCanvas.getContext('2d');
+const startBtn=$('#startBtn'), curateBtn=$('#curateBtn'), muteBtn=$('#muteBtn');
+const autoBtn=$('#autoBtn'), lockBtn=$('#lockBtn'), flipBtn=$('#flipBtn');
+const statusEl=$('#status'), dlBar=$('#dl'), enginePill=$('#enginePill'), hdgPill=$('#hdgPill'), sayEl=$('#say');
+const zoneEls={ left:$('#zL'), center:$('#zC'), right:$('#zR') };
+
+// ---------- knobs ----------
+const FOV_DEG=65, HALF_FOV=FOV_DEG/2;   // assumed horizontal camera FOV
+const CURATE_MS=3000;                    // Claude cadence (the "what" rate)
+const MAX_OBJ=4;                         // voices the curator may light up at once
+const ALPHA=0.3;                         // depth EMA
+const K_NEAR=0.4, K_RANGE=6.0;           // relative-depth -> approx metres (uncalibrated)
+const BED_GAIN=0.16, OBJ_GAIN=0.55;      // ambient bed quieter than curated objects
+let GYRO_SIGN=1;                          // flip if world-locking turns the wrong way
 
 // ---------- state ----------
-let estimator=null, detector=null, stream=null, running=false, muted=false, mapping='hum';
-let apiKey='';
-let semantic=null, semanticUntil=0;      // reshaping overlay (fed by BOTH detector + Claude)
-let lastDepth=null;                       // most recent depth map, for per-box distance
-let detectOn=true, ttsOn=true, claudeBusy=false;
-const ema = { left:0, center:0, right:0 };
-const ALPHA = 0.3;
+let estimator=null, stream=null, running=false, muted=false, mapping='hum';
+let apiKey='', lastDepth=null;
+let heading=0, headingRef=null, worldLock=true, gyroOn=false;
+let autoCurate=true, curateInFlight=false, claudeBusy=false;
+let objects=[];                          // active world-locked sound objects
+const ema={ left:0, center:0, right:0 }; // ambient bed proximity
 
-// grab canvas (depth model input)
-const grab = document.createElement('canvas');
-grab.width = 256; grab.height = 192;   // smaller = faster on WASM
-const gctx = grab.getContext('2d', { willReadFrequently:true });
+// model-input canvas (depth)
+const grab=document.createElement('canvas'); grab.width=256; grab.height=192;
+const gctx=grab.getContext('2d',{ willReadFrequently:true });
 
-// grab canvas (detector input — kept modest for WASM speed)
-const dgrab = document.createElement('canvas');
-dgrab.width = 320; dgrab.height = 240;
-const dgctx = dgrab.getContext('2d', { willReadFrequently:true });
+// ---------- helpers ----------
+const lerp=(a,b,t)=>a+(b-a)*t;
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const clamp01=v=>clamp(v,0,1);
+const normDeg=d=>{ d=((d+180)%360+360)%360-180; return d; };
+function setStatus(t){ statusEl.innerHTML=t; }
+function distMeters(p){ return Math.max(K_NEAR,(1-p)*K_RANGE+K_NEAR); }
+function distPhrase(p){ return p>0.75?'very close':p>0.5?'close':p>0.3?'a few metres away':'far'; }
+function effHeading(){ return worldLock ? GYRO_SIGN*heading : 0; }
 
-// ---------- mapping segmented control ----------
+// open-vocabulary class -> timbre bucket
+const TIMBRE={
+  default:{ wave:'sine',     base:150, mult:1.0 },
+  person: { wave:'sawtooth', base:230, mult:1.5 },
+  wall:   { wave:'square',   base:90,  mult:0.9 },
+  door:   { wave:'triangle', base:320, mult:1.1 },
+  step:   { wave:'sawtooth', base:70,  mult:1.6 },
+  object: { wave:'triangle', base:175, mult:1.05 },
+};
+function classBucket(c){
+  c=(c||'').toLowerCase();
+  if(/person|people|man|woman|child|pedestrian|human|someone/.test(c)) return 'person';
+  if(/stair|step|curb|kerb|edge|drop|hole|gap|ledge/.test(c)) return 'step';
+  if(/door|opening|gate|entrance|doorway/.test(c)) return 'door';
+  if(/wall|barrier|fence|glass/.test(c)) return 'wall';
+  return 'object';
+}
+
+// ---------- mapping seg ----------
 $('#mapSeg').addEventListener('click', e=>{
-  const b = e.target.closest('button'); if(!b) return;
-  mapping = b.dataset.map;
+  const b=e.target.closest('button'); if(!b) return;
+  mapping=b.dataset.map;
   [...e.currentTarget.children].forEach(c=>c.classList.toggle('on', c===b));
 });
 
@@ -160,240 +191,257 @@ $('#mapSeg').addEventListener('click', e=>{
 $('#keyBtn').addEventListener('click', ()=> $('#keyCard').classList.toggle('hidden'));
 $('#keyClose').addEventListener('click', ()=> $('#keyCard').classList.add('hidden'));
 $('#keySave').addEventListener('click', ()=>{
-  apiKey = $('#key').value.trim();
+  apiKey=$('#key').value.trim();
   $('#keyCard').classList.add('hidden');
-  describeBtn.disabled = !(apiKey && running);
-  setStatus(apiKey ? 'API key set.' : 'No key — Claude layer disabled.');
+  curateBtn.disabled=!(apiKey && running);
+  setStatus(apiKey?'API key set — Claude curation active.':'No key — depth-only ambient bed.');
 });
-
-function setStatus(t){ statusEl.innerHTML = t; }
 
 // ============================================================
 //  AUDIO ENGINE
 // ============================================================
 let ctx=null, master=null;
-const voices = {};   // per-zone persistent hum voice
-
-// timbre table — the "semantic prior" reshapes these
-// waveform + base pitch + a salience gain multiplier
-const TIMBRE = {
-  default: { wave:'sine',     base:140, mult:1.0 },
-  person:  { wave:'sawtooth', base:220, mult:1.6 },   // vocal-ish, high salience
-  wall:    { wave:'square',   base:90,  mult:0.9 },   // low, droney
-  door:    { wave:'triangle', base:300, mult:1.2 },   // bright, inviting
-  step:    { wave:'sawtooth', base:70,  mult:1.5 },   // low + urgent (trip hazard)
-  object:  { wave:'triangle', base:170, mult:1.1 },
-};
+const bed={};   // 3-zone ambient hum/beep (the "where" floor)
 
 function buildAudio(){
-  const AC = window.AudioContext || window.webkitAudioContext;
-  ctx = new AC({ latencyHint:'interactive' });
-  master = ctx.createGain(); master.gain.value = 0.9; master.connect(ctx.destination);
+  const AC=window.AudioContext||window.webkitAudioContext;
+  ctx=new AC({ latencyHint:'interactive' });
+  master=ctx.createGain(); master.gain.value=0.9; master.connect(ctx.destination);
   for(const z of ['left','center','right']){
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    const pan = ctx.createStereoPanner();
-    osc.type='sine'; osc.frequency.value=140; gain.gain.value=0.0001;
+    const osc=ctx.createOscillator(), gain=ctx.createGain(), pan=ctx.createStereoPanner();
+    osc.type='sine'; osc.frequency.value=130; gain.gain.value=0.0001;
     pan.pan.value = z==='left'?-0.85 : z==='right'?0.85 : 0;
-    osc.connect(gain).connect(pan).connect(master);
-    osc.start();
-    voices[z] = { osc, gain, pan };
+    osc.connect(gain).connect(pan).connect(master); osc.start();
+    bed[z]={ osc, gain, pan };
   }
   startBeepScheduler();
 }
 
-// continuous hum: per-zone gain ~ proximity, pitch ~ proximity, timbre ~ semantics
-function updateHum(){
-  const now = ctx.currentTime;
+// ambient bed: quiet floor so the room is always softly present
+function updateBed(){
+  const now=ctx.currentTime;
   for(const z of ['left','center','right']){
-    const p = ema[z];                      // 0..1 proximity
-    const t = timbreFor(z);
-    const v = voices[z];
-    v.osc.type = t.wave;
-    const f = t.base + p*p*520;
-    v.osc.frequency.setTargetAtTime(f, now, 0.05);
-    const audible = (mapping==='hum' || mapping==='both');
-    const g = audible ? Math.min(0.33, p*p*0.33*t.mult) : 0.0001;
-    v.gain.gain.setTargetAtTime(Math.max(0.0001,g), now, 0.05);
+    const p=ema[z], v=bed[z];
+    v.osc.frequency.setTargetAtTime(110+p*p*260, now, 0.06);
+    const on=(mapping==='hum'||mapping==='both');
+    v.gain.gain.setTargetAtTime(on?Math.max(0.0001,p*p*BED_GAIN):0.0001, now, 0.06);
   }
 }
-
-// beep-rate: closer = faster bursts, per zone, panned, timbre-colored
 let beepTimer=null; const nextBeep={left:0,center:0,right:0};
 function startBeepScheduler(){
   clearInterval(beepTimer);
-  beepTimer = setInterval(()=>{
+  beepTimer=setInterval(()=>{
     if(!ctx) return;
-    const active = (mapping==='beep' || mapping==='both');
-    if(!active) return;
-    const horizon = ctx.currentTime + 0.12;
+    if(!(mapping==='beep'||mapping==='both')) return;
+    const horizon=ctx.currentTime+0.12;
     for(const z of ['left','center','right']){
-      const p = ema[z];
-      if(p < 0.12) continue;                       // silence far/empty zones
-      const interval = lerp(0.85, 0.07, p);        // near = rapid fire
-      if(nextBeep[z] < ctx.currentTime) nextBeep[z] = ctx.currentTime + 0.02;
-      while(nextBeep[z] < horizon){
-        scheduleBeep(z, nextBeep[z], p);
-        nextBeep[z] += interval;
-      }
+      const p=ema[z]; if(p<0.14) continue;
+      const interval=lerp(0.9,0.09,p);
+      if(nextBeep[z]<ctx.currentTime) nextBeep[z]=ctx.currentTime+0.02;
+      while(nextBeep[z]<horizon){ beep(z,nextBeep[z],p); nextBeep[z]+=interval; }
     }
-  }, 25);
+  },25);
 }
-function scheduleBeep(z, t, p){
-  const tb = timbreFor(z);
-  const o = ctx.createOscillator(), g = ctx.createGain(), pan = ctx.createStereoPanner();
-  o.type = tb.wave;
-  o.frequency.value = tb.base*1.5 + p*400;
+function beep(z,t,p){
+  const o=ctx.createOscillator(), g=ctx.createGain(), pan=ctx.createStereoPanner();
+  o.type='sine'; o.frequency.value=200+p*260;
   pan.pan.value = z==='left'?-0.85 : z==='right'?0.85 : 0;
   o.connect(g).connect(pan).connect(master);
-  const amp = Math.min(0.4, 0.18 + p*0.22) * tb.mult;
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(amp, t+0.006);
-  g.gain.exponentialRampToValueAtTime(0.0001, t+0.075);
-  o.start(t); o.stop(t+0.09);
+  const amp=Math.min(0.22,0.1+p*0.14);
+  g.gain.setValueAtTime(0.0001,t);
+  g.gain.exponentialRampToValueAtTime(amp,t+0.006);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+0.07);
+  o.start(t); o.stop(t+0.085);
 }
 
-// which timbre applies to a zone right now (Claude overlay if fresh)
-function timbreFor(z){
-  if(semantic && performance.now() < semanticUntil && semantic[z]){
-    return TIMBRE[semantic[z]] || TIMBRE.default;
+// ----- per-object world-locked voices (the curated "what") -----
+function makeObjectVoice(o){
+  if(!ctx) return;
+  const tb=TIMBRE[classBucket(o.cls)]||TIMBRE.default;
+  o.osc=ctx.createOscillator(); o.osc.type=tb.wave; o.osc.frequency.value=tb.base;
+  o.env=ctx.createGain(); o.env.gain.value=0.0001;
+  o.pan=ctx.createStereoPanner(); o.pan.pan.value=0;
+  o.osc.connect(o.env).connect(o.pan).connect(master);
+  if(o.hazard){    // looming: a tremolo whose rate & depth grow as it nears
+    o.lfo=ctx.createOscillator(); o.lfo.type='sine'; o.lfo.frequency.value=3;
+    o.lfoGain=ctx.createGain(); o.lfoGain.gain.value=0;
+    o.lfo.connect(o.lfoGain).connect(o.env.gain); o.lfo.start();
   }
-  return TIMBRE.default;
+  o.osc.start();
+}
+function killObjectVoice(o){
+  if(!o.osc||!ctx) return;
+  const now=ctx.currentTime;
+  try{ o.env.gain.setTargetAtTime(0.0001,now,0.06); }catch{}
+  try{ o.osc.stop(now+0.35); }catch{}
+  if(o.lfo) try{ o.lfo.stop(now+0.35); }catch{}
+}
+function rebuildObjects(list){
+  for(const o of objects) killObjectVoice(o);
+  const base=effHeading();
+  objects=(list||[]).slice(0,MAX_OBJ).map((d,i)=>{
+    const x=clamp01(d.x==null?0.5:+d.x);
+    const o={ id:Date.now()+'_'+i, cls:(d.class||'object'),
+              bearing:normDeg(base+(x-0.5)*FOV_DEG),
+              hazard:!!d.hazard, sal:clamp01(d.sal==null?0.5:+d.sal),
+              prox:0, prevProx:0 };
+    makeObjectVoice(o); return o;
+  });
+}
+function updateObjects(){
+  if(!ctx) return;
+  const now=ctx.currentTime;
+  for(const o of objects){
+    const camRel=normDeg(o.bearing-effHeading());
+    const inView=Math.abs(camRel)<=HALF_FOV+6;
+    if(inView && lastDepth){
+      const x=clamp01(0.5+camRel/FOV_DEG);
+      const p=sampleColumnProx(lastDepth,x,0.08);
+      o.prevProx=o.prox; o.prox=ALPHA*p+(1-ALPHA)*o.prox;
+    }else{
+      o.prevProx=o.prox; o.prox*=0.98;     // out of view: hold + slow fade
+    }
+    const tb=TIMBRE[classBucket(o.cls)]||TIMBRE.default;
+    o.pan.pan.setTargetAtTime(clamp(camRel/HALF_FOV,-1,1), now, 0.06);
+    o.osc.frequency.setTargetAtTime(tb.base + o.prox*200, now, 0.08);
+    let base=o.prox*o.prox*(0.4+o.sal)*OBJ_GAIN*tb.mult;
+    if(!inView) base*=0.6;
+    o.env.gain.setTargetAtTime(muted?0.0001:Math.max(0.0001,base), now, 0.08);
+    if(o.hazard && o.lfo){
+      const approach=Math.max(0,o.prox-o.prevProx);
+      const rate=lerp(2,13,clamp01(o.prox+approach*8));
+      o.lfo.frequency.setTargetAtTime(rate, now, 0.1);
+      o.lfoGain.gain.setTargetAtTime(muted?0:base*0.9, now, 0.1);
+    }
+  }
 }
 
-const lerp=(a,b,t)=>a+(b-a)*t;
-
-// approximate distance from relative-depth proximity (0..1). UNCALIBRATED estimate.
-// tune K_NEAR / K_RANGE per device; metric truth needs ARCore/metric model.
-const K_NEAR = 0.4, K_RANGE = 6.0;
-function distMeters(p){ return Math.max(K_NEAR, (1-p)*K_RANGE + K_NEAR); }
-function distPhrase(p){ return p>0.75?'very close':p>0.5?'close':p>0.3?'a few meters away':'far'; }
-const SIDE = { left:'on your left', center:'ahead', right:'on your right' };
+// ============================================================
+//  GYRO  (world-locking)
+// ============================================================
+function onOrient(e){
+  let a = (e.webkitCompassHeading!=null) ? e.webkitCompassHeading : e.alpha;
+  if(a==null) return;
+  if(headingRef==null) headingRef=a;
+  heading=normDeg(a-headingRef);
+  gyroOn=true;
+}
+async function enableGyro(){
+  try{
+    if(typeof DeviceOrientationEvent!=='undefined' && DeviceOrientationEvent.requestPermission){
+      const s=await DeviceOrientationEvent.requestPermission(); if(s!=='granted') return false;
+    }
+    window.addEventListener('deviceorientation', onOrient, true);
+    return true;
+  }catch(err){ return false; }
+}
 
 // ============================================================
-//  CAMERA + DEPTH LOOP
+//  CAMERA + DEPTH (on-device "where")
 // ============================================================
-let facing = 'environment';   // 'environment' = rear, 'user' = front
+let facing='environment';
 async function startCamera(){
   if(stream) stream.getTracks().forEach(t=>t.stop());
-  stream = await navigator.mediaDevices.getUserMedia({
-    audio:false,
-    video:{ facingMode:{ ideal: facing }, width:{ ideal:640 }, height:{ ideal:480 } }
+  stream=await navigator.mediaDevices.getUserMedia({
+    audio:false, video:{ facingMode:{ ideal:facing }, width:{ ideal:640 }, height:{ ideal:480 } }
   });
-  video.srcObject = stream; await video.play();
-  // mirror only the on-screen preview for a front/selfie camera (model still sees the true frame)
-  video.style.transform = (facing==='user') ? 'scaleX(-1)' : 'none';
+  video.srcObject=stream; await video.play();
+  video.style.transform=(facing==='user')?'scaleX(-1)':'none';
 }
 async function flipCamera(){
-  facing = (facing==='environment') ? 'user' : 'environment';
+  facing=(facing==='environment')?'user':'environment';
   try{ await startCamera(); setStatus('Camera: '+(facing==='user'?'front':'rear')); }
-  catch(e){ setStatus('Flip failed: '+e.message); facing = (facing==='user')?'environment':'user'; }
+  catch(e){ setStatus('Flip failed: '+e.message); facing=(facing==='user')?'environment':'user'; }
 }
 
 async function loadModel(){
-  const onProgress = e=>{
+  const onProgress=e=>{
     if(e.status==='progress' && e.total){
-      dlBar.style.width = Math.round((e.loaded/e.total)*100)+'%';
-      setStatus(`Downloading depth model… ${Math.round((e.loaded/e.total)*100)}%`);
+      const pct=Math.round((e.loaded/e.total)*100);
+      dlBar.style.width=pct+'%'; setStatus(`Downloading depth model… ${pct}%`);
     }
   };
-  // warm-up forces the backend to actually initialize NOW, so a lazy
-  // WebGPU failure (e.g. webgpuInit undefined on some mobile Chrome builds)
-  // is caught here and we can fall back to WASM instead of crashing mid-run.
-  const warm = async est=>{
-    const c=document.createElement('canvas'); c.width=64; c.height=64;
-    const x=c.getContext('2d'); x.fillStyle='#777'; x.fillRect(0,0,64,64);
-    await est(c);
-  };
-  const build = async (device,dtype)=>{
-    const est = await pipeline('depth-estimation','onnx-community/depth-anything-v2-small',
+  const warm=async est=>{ const c=document.createElement('canvas'); c.width=64; c.height=64;
+    const x=c.getContext('2d'); x.fillStyle='#777'; x.fillRect(0,0,64,64); await est(c); };
+  const build=async(device,dtype)=>{
+    const est=await pipeline('depth-estimation','onnx-community/depth-anything-v2-small',
       { device, dtype, progress_callback:onProgress });
-    await warm(est);
-    return est;
+    await warm(est); return est;
   };
-  // WASM is the reliable default — the WebGPU backend in transformers.js
-  // crashes ("webgpuInit is not a function") on some mobile Chrome builds.
-  // Opt into WebGPU only with ?gpu=1 in the URL, and still fall back if it fails.
-  const wantGpu = new URLSearchParams(location.search).has('gpu');
+  const wantGpu=new URLSearchParams(location.search).has('gpu');
   if(wantGpu && navigator.gpu){
-    try{
-      setStatus('Trying WebGPU…');
-      estimator = await build('webgpu','fp16');
-      enginePill.textContent='engine: WebGPU';
-    }catch(err){
-      console.warn('WebGPU failed, using WASM:', err);
-      estimator = null;
-    }
+    try{ setStatus('Trying WebGPU…'); estimator=await build('webgpu','fp16'); enginePill.textContent='engine: WebGPU'; }
+    catch(err){ console.warn('WebGPU failed -> WASM', err); estimator=null; }
   }
   if(!estimator){
     setStatus('Loading WASM backend (works everywhere)…');
-    estimator = await build('wasm','q8');
-    enginePill.textContent='engine: WASM';
+    estimator=await build('wasm','q8'); enginePill.textContent='engine: WASM';
   }
   dlBar.style.width='100%';
 }
 
-// Live object detector — names objects so the app reacts ("person, close, left"),
-// where the depth model alone can only say how far. COCO-80 vocabulary.
-async function loadDetector(){
-  const onP = e=>{
-    if(e.status==='progress' && e.total)
-      setStatus(`Downloading detector… ${Math.round((e.loaded/e.total)*100)}%`);
-  };
-  const tryBuild = dtype => pipeline('object-detection','Xenova/yolos-tiny',
-    { device:'wasm', dtype, progress_callback:onP });
-  try{
-    detector = await tryBuild('q8');
-  }catch(err){
-    console.warn('detector q8 failed, retrying fp32', err);
-    try{ detector = await tryBuild(undefined); }
-    catch(err2){ console.warn('detector unavailable', err2); detector=null; }
-  }
+// median nearness of a vertical strip of the depth map (DA-V2: brighter = nearer)
+function sampleColumnProx(depth,xc,hw){
+  const { data,width,height }=depth;
+  const x0=Math.max(0,Math.floor((xc-hw)*width)), x1=Math.min(width,Math.ceil((xc+hw)*width));
+  const y0=Math.floor(height*0.20), y1=Math.floor(height*0.80);
+  const vals=[];
+  for(let y=y0;y<y1;y+=2) for(let x=x0;x<x1;x+=2) vals.push(data[y*width+x]);
+  if(!vals.length) return 0;
+  vals.sort((a,b)=>a-b);
+  return (vals[Math.floor(vals.length*0.85)]||0)/255;
 }
-
-// sample three vertical bands; proximity = high-percentile of (near) depth.
-// DA-V2 output: brighter (larger value) = nearer.
 function readZones(depth){
-  const { data, width, height } = depth;
-  const bands = { left:[0,width/3], center:[width/3,2*width/3], right:[2*width/3,width] };
-  // focus on central vertical region (chest/head height), skip floor + ceiling
-  const y0 = Math.floor(height*0.20), y1 = Math.floor(height*0.80);
-  const out = {};
+  const { data,width,height }=depth;
+  const bands={ left:[0,width/3], center:[width/3,2*width/3], right:[2*width/3,width] };
+  const y0=Math.floor(height*0.20), y1=Math.floor(height*0.80), out={};
   for(const z in bands){
-    const [x0,x1] = bands[z].map(Math.floor);
-    let vals=[];
-    for(let y=y0;y<y1;y+=2){
-      for(let x=x0;x<x1;x+=2){
-        vals.push(data[y*width+x]);
-      }
-    }
+    const [x0,x1]=bands[z].map(Math.floor); const vals=[];
+    for(let y=y0;y<y1;y+=2) for(let x=x0;x<x1;x+=2) vals.push(data[y*width+x]);
     vals.sort((a,b)=>a-b);
-    // 85th percentile of nearness → robust "closest meaningful surface"
-    const p = vals[Math.floor(vals.length*0.85)] || 0;
-    out[z] = p/255;
+    out[z]=(vals[Math.floor(vals.length*0.85)]||0)/255;
   }
   return out;
 }
-
 function paintDepth(depth){
-  const { data, width, height } = depth;
-  const img = dctx.createImageData(width, height);
-  for(let i=0;i<data.length;i++){
-    const v=data[i]; img.data[i*4]=v; img.data[i*4+1]=v*0.4; img.data[i*4+2]=255-v; img.data[i*4+3]=255;
-  }
-  // scale into 128x96
+  const { data,width,height }=depth;
+  const img=dctx.createImageData(width,height);
+  for(let i=0;i<data.length;i++){ const v=data[i];
+    img.data[i*4]=v; img.data[i*4+1]=v*0.4; img.data[i*4+2]=255-v; img.data[i*4+3]=255; }
   const tmp=document.createElement('canvas'); tmp.width=width; tmp.height=height;
   tmp.getContext('2d').putImageData(img,0,0);
   dctx.drawImage(tmp,0,0,depthCanvas.width,depthCanvas.height);
 }
+function paintBed(){
+  for(const z of ['left','center','right'])
+    zoneEls[z].querySelector('i').style.height=Math.round(ema[z]*100)+'%';
+}
 
-function paintZones(){
-  const semFresh = semantic && performance.now()<semanticUntil;
-  for(const z of ['left','center','right']){
-    const el = zoneEls[z];
-    el.querySelector('i').style.height = Math.round(ema[z]*100)+'%';
-    const tag = el.querySelector('.tag');
-    tag.textContent = (semFresh && semantic[z]) ? semantic[z] : '';
+// markers for curated objects (+ edge arrows for things out of view)
+function sizeBox(){ boxCanvas.width=window.innerWidth; boxCanvas.height=window.innerHeight; }
+window.addEventListener('resize', sizeBox);
+function paintMarkers(){
+  const W=boxCanvas.width, H=boxCanvas.height;
+  bctx.clearRect(0,0,W,H);
+  for(const o of objects){
+    const camRel=normDeg(o.bearing-effHeading());
+    const col=o.hazard?'#ff3b6b':'#39d98a';
+    bctx.fillStyle=col; bctx.strokeStyle=col; bctx.font='600 13px -apple-system,sans-serif';
+    if(Math.abs(camRel)<=HALF_FOV){
+      let sx=(0.5+camRel/FOV_DEG)*W; if(facing==='user') sx=W-sx;
+      const sy=H*0.5, r=10+o.prox*46;
+      bctx.lineWidth=o.hazard?3:2;
+      bctx.beginPath(); bctx.arc(sx,sy,r,0,Math.PI*2); bctx.stroke();
+      bctx.fillText(`${o.cls} ${distMeters(o.prox).toFixed(1)}m`, sx-r, sy-r-6);
+    }else{
+      let right=camRel>0; if(facing==='user') right=!right;
+      const ex=right?W-18:18, ey=H*0.5;
+      bctx.beginPath();
+      if(right){ bctx.moveTo(ex,ey-11); bctx.lineTo(ex+13,ey); bctx.lineTo(ex,ey+11); }
+      else{ bctx.moveTo(ex,ey-11); bctx.lineTo(ex-13,ey); bctx.lineTo(ex,ey+11); }
+      bctx.closePath(); bctx.fill();
+      bctx.fillText(o.cls, right?ex-bctx.measureText(o.cls).width-6:ex+16, ey-14);
+    }
   }
 }
 
@@ -401,199 +449,77 @@ async function loop(){
   if(!running) return;
   try{
     gctx.drawImage(video,0,0,grab.width,grab.height);
-    const { depth } = await estimator(grab);
-    lastDepth = depth;
-    const raw = readZones(depth);
-    for(const z of ['left','center','right']) ema[z] = ALPHA*raw[z] + (1-ALPHA)*ema[z];
-    updateHum();
-    paintDepth(depth);
-    paintZones();
+    const { depth }=await estimator(grab);
+    lastDepth=depth;
+    const raw=readZones(depth);
+    for(const z of ['left','center','right']) ema[z]=ALPHA*raw[z]+(1-ALPHA)*ema[z];
+    updateBed();
+    updateObjects();
+    paintDepth(depth); paintBed(); paintMarkers();
+    hdgPill.textContent = gyroOn ? `heading: ${Math.round(heading)}°${worldLock?'':' (lock off)'}` : 'heading: n/a';
   }catch(err){ console.error(err); }
-  // throttle ~10fps
   setTimeout(()=>requestAnimationFrame(loop), 90);
 }
 
 // ============================================================
-//  LIVE OBJECT DETECTION  (the "oh, a chair" reflex)
-//  Runs on its own throttle so the depth soundscape keeps going.
-//  Feeds the SAME semantic overlay Claude uses, so timbres recolor for free.
+//  CLAUDE CURATOR  (the low-cadence "what" — off-device)
 // ============================================================
-const DET_THRESH = 0.5;     // min confidence
-const DET_GAP    = 850;     // ms rest between detections (keeps depth loop alive)
-let detTimer=null;
-
-// COCO label → timbre bucket (person stands out; everything else is an "object")
-function cocoToBucket(label){ return label==='person' ? 'person' : 'object'; }
-
-async function detectLoop(){
-  if(!running){ return; }
-  if(detectOn && detector){
-    try{
-      dgctx.drawImage(video,0,0,dgrab.width,dgrab.height);
-      const dets = await detector(dgrab, { threshold:DET_THRESH, percentage:true });
-      handleDetections(dets);
-    }catch(err){ console.warn('detect', err); }
-  }else{
-    bctx.clearRect(0,0,boxCanvas.width,boxCanvas.height);
-  }
-  detTimer = setTimeout(detectLoop, DET_GAP);
-}
-
-// median "nearness" (0..1) of the depth map inside a normalized box
-function boxProximity(b){
-  if(!lastDepth) return 0;
-  const { data, width, height } = lastDepth;
-  const x0=Math.max(0,Math.floor(b.xmin*width)),  x1=Math.min(width, Math.ceil(b.xmax*width));
-  const y0=Math.max(0,Math.floor(b.ymin*height)), y1=Math.min(height,Math.ceil(b.ymax*height));
-  const vals=[];
-  for(let y=y0;y<y1;y+=2) for(let x=x0;x<x1;x+=2) vals.push(data[y*width+x]);
-  if(!vals.length) return 0;
-  vals.sort((a,b)=>a-b);
-  return (vals[Math.floor(vals.length*0.6)]||0)/255;   // 60th pct = robust near-surface
-}
-
-function handleDetections(dets){
-  bctx.clearRect(0,0,boxCanvas.width,boxCanvas.height);
-  if(!dets || !dets.length){ return; }
-  const perZone={}; let head=null;
-  for(const d of dets){
-    const b=d.box;
-    const cx=(b.xmin+b.xmax)/2;
-    const side = cx<0.34?'left' : cx>0.66?'right' : 'center';
-    const p = boxProximity(b);
-    const det={ label:d.label, score:d.score, side, p, b };
-    drawBox(det);
-    if(!perZone[side] || p>perZone[side].p) perZone[side]=det;
-    if(!head || p>head.p) head=det;
-  }
-  // feed the overlay (same channel as Claude) → hum/beep recolor by class for ~2s
-  const sem={left:null,center:null,right:null};
-  for(const z in perZone) sem[z]=cocoToBucket(perZone[z].label);
-  semantic=sem; semanticUntil=performance.now()+2200;
-  // headline: nearest object gets an earcon, a caption, and (throttled) a spoken name
-  if(head && head.p>0.18){
-    earcon(head.side, head.p, head.label);
-    sayEl.innerHTML = `<span class="lab">${head.label}</span> ${distPhrase(head.p)} · ~${distMeters(head.p).toFixed(1)} m · ${SIDE[head.side]}`;
-    if(ttsOn && !claudeBusy) maybeAnnounce(head);
-  }
-}
-
-// map normalized source coords → on-screen px, accounting for object-fit:cover + front-cam mirror
-function coverMap(nx,ny,nw,nh){
-  const sw=video.videoWidth||4, sh=video.videoHeight||3;
-  const vw=boxCanvas.width, vh=boxCanvas.height;
-  const scale=Math.max(vw/sw, vh/sh);
-  const rw=sw*scale, rh=sh*scale;
-  const ox=(rw-vw)/2, oy=(rh-vh)/2;
-  let x=nx*rw-ox, y=ny*rh-oy, w=nw*rw, h=nh*rh;
-  if(facing==='user') x = vw-(x+w);    // match mirrored preview; labels stay readable
-  return {x,y,w,h};
-}
-function sizeBoxCanvas(){ boxCanvas.width=window.innerWidth; boxCanvas.height=window.innerHeight; }
-window.addEventListener('resize', sizeBoxCanvas);
-
-function drawBox(det){
-  const m=coverMap(det.b.xmin, det.b.ymin, det.b.xmax-det.b.xmin, det.b.ymax-det.b.ymin);
-  const near=det.p>0.55, col=near?'#ff3b6b':'#39d98a';
-  bctx.lineWidth=2; bctx.strokeStyle=col;
-  bctx.strokeRect(m.x,m.y,m.w,m.h);
-  const txt=`${det.label} ${distMeters(det.p).toFixed(1)}m`;
-  bctx.font='600 13px -apple-system,sans-serif';
-  const tw=bctx.measureText(txt).width+10, ty=Math.max(0,m.y-18);
-  bctx.fillStyle=col; bctx.fillRect(m.x,ty,tw,18);
-  bctx.fillStyle='#0e0f12'; bctx.fillText(txt, m.x+5, ty+13);
-}
-
-// short distinct blip per object — timbre by class, pitch nudged per label, panned to its side
-function earcon(side,p,label){
-  if(!ctx||muted) return;
-  const tb=TIMBRE[cocoToBucket(label)]||TIMBRE.default;
-  const hash=[...label].reduce((a,c)=>a+c.charCodeAt(0),0);
-  const t=ctx.currentTime+0.01;
-  const o=ctx.createOscillator(), g=ctx.createGain(), pan=ctx.createStereoPanner();
-  o.type=tb.wave;
-  o.frequency.value=tb.base*1.5 + p*300 + (hash%6)*22;
-  pan.pan.value = side==='left'?-0.85 : side==='right'?0.85 : 0;
-  o.connect(g).connect(pan).connect(master);
-  const amp=Math.min(0.5, 0.22+p*0.25)*tb.mult;
-  g.gain.setValueAtTime(0.0001,t);
-  g.gain.exponentialRampToValueAtTime(amp,t+0.012);
-  g.gain.exponentialRampToValueAtTime(0.0001,t+0.17);
-  o.start(t); o.stop(t+0.19);
-}
-
-// speak the nearest object, but rate-limited so it isn't a chatterbox
-let lastSpokenLabel='', lastSpeakAt=0;
-function maybeAnnounce(head){
-  const now=performance.now();
-  const changed = head.label!==lastSpokenLabel;
-  if(changed ? (now-lastSpeakAt>1200) : (now-lastSpeakAt>4000)){
-    speak(`${head.label}, ${distPhrase(head.p)}, about ${distMeters(head.p).toFixed(1)} meters, ${SIDE[head.side]}`);
-    lastSpokenLabel=head.label; lastSpeakAt=now;
-  }
-}
-
-// ============================================================
-//  CLAUDE SEMANTIC PRIOR  (the delta)
-// ============================================================
-const SYS = `You are the perception layer of an audio navigation aid for a blind user.
-Look at the image. Respond with ONLY compact JSON, no prose:
+const SYS=`You are the perception layer of an audio navigation aid for a BLIND user who is walking.
+Look at the image and list up to 4 things that matter most for safe walking, most important first.
+Respond with ONLY compact JSON, no prose:
 {"speak":"<=12 word spoken summary, hazards first",
- "zones":{"left":<class|null>,"center":<class|null>,"right":<class|null>}}
-class is one of: "person","wall","door","step","object", or null if that third of the view is clear/far.
-"step" = stairs, curb, drop, or trip hazard. Map objects to the third of the frame they occupy.`;
+ "objects":[{"x":<0..1 horizontal position in frame, 0=left 1=right>,
+             "class":"<short label: person, wall, door, stairs, pole, table, ...>",
+             "hazard":<true if an obstacle to avoid or a trip hazard, else false>,
+             "sal":<0..1 how important to attend to>}]}
+Prefer obstacles at head/chest height and trip hazards (steps, curbs, drops). Omit far/irrelevant background. Do not invent distances.`;
 
-async function describe(){
+async function curate(){
   if(!apiKey){ $('#keyCard').classList.remove('hidden'); return; }
-  claudeBusy=true;   // hush the live detector while Claude speaks
-  describeBtn.disabled=true; const old=describeBtn.textContent; describeBtn.textContent='…thinking';
+  if(curateInFlight) return;
+  curateInFlight=true; claudeBusy=true;
+  const old=curateBtn.textContent; curateBtn.disabled=true; curateBtn.textContent='…curating';
   try{
-    const snap=document.createElement('canvas'); snap.width=512; snap.height=384;
+    const snap=document.createElement('canvas'); snap.width=448; snap.height=336;
     snap.getContext('2d').drawImage(video,0,0,snap.width,snap.height);
-    const b64 = snap.toDataURL('image/jpeg',0.7).split(',')[1];
-    const res = await fetch('https://api.anthropic.com/v1/messages',{
+    const b64=snap.toDataURL('image/jpeg',0.6).split(',')[1];
+    const res=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
-      headers:{
-        'x-api-key':apiKey,
-        'anthropic-version':'2023-06-01',
-        'anthropic-dangerous-direct-browser-access':'true',
-        'content-type':'application/json'
-      },
-      body:JSON.stringify({
-        model:'claude-haiku-4-5', max_tokens:200, system:SYS,
-        messages:[{role:'user',content:[
-          {type:'image',source:{type:'base64',media_type:'image/jpeg',data:b64}},
-          {type:'text',text:'Describe for navigation.'}
-        ]}]
-      })
+      headers:{ 'x-api-key':apiKey, 'anthropic-version':'2023-06-01',
+        'anthropic-dangerous-direct-browser-access':'true', 'content-type':'application/json' },
+      body:JSON.stringify({ model:'claude-haiku-4-5', max_tokens:300, system:SYS,
+        messages:[{ role:'user', content:[
+          { type:'image', source:{ type:'base64', media_type:'image/jpeg', data:b64 } },
+          { type:'text', text:'Curate the scene for walking now.' } ]}] })
     });
-    const json = await res.json();
+    const json=await res.json();
     if(json.error) throw new Error(json.error.message||'API error');
-    const txt = json.content?.[0]?.text || '{}';
-    const parsed = JSON.parse(txt.slice(txt.indexOf('{'), txt.lastIndexOf('}')+1));
-    // apply the overlay: reshapes sonification timbre/salience for 8s
-    semantic = parsed.zones || {};
-    semanticUntil = performance.now() + 8000;
-    // fuse Claude's labels (what) with live depth (how close) → "X, close, ~1.5 m, on your left"
-    const parts=[], spoken=[];
-    for(const z of ['center','left','right']){
-      const lab = semantic[z]; if(!lab) continue;
-      const p = ema[z];
-      const m = distMeters(p).toFixed(1);
-      parts.push(`<span class="lab">${lab}</span> ${distPhrase(p)} · ~${m} m · ${SIDE[z]}`);
-      spoken.push(`${lab} ${distPhrase(p)}, about ${m} meters, ${SIDE[z]}`);
-    }
-    const sentence = spoken.length ? spoken.join('. ') : (parsed.speak || 'Path looks clear');
-    sayEl.innerHTML = (parsed.speak ? `${parsed.speak}<br>` : '') + parts.join('<br>');
-    speak(sentence, true);
+    const txt=json.content?.[0]?.text||'{}';
+    const parsed=JSON.parse(txt.slice(txt.indexOf('{'),txt.lastIndexOf('}')+1));
+    rebuildObjects(parsed.objects||[]);
+    renderSay(parsed);
+    if(parsed.speak) speak(parsed.speak,true);
   }catch(err){
-    sayEl.textContent = 'Claude error: '+err.message; claudeBusy=false;
+    sayEl.innerHTML='<span class="haz">Claude error:</span> '+err.message; claudeBusy=false;
   }finally{
-    describeBtn.textContent=old; describeBtn.disabled=false;
+    curateBtn.textContent=old; curateBtn.disabled=!(apiKey&&running); curateInFlight=false;
   }
 }
-// hold=true keeps the detector quiet until this utterance finishes
-function speak(t, hold){
+function renderSay(parsed){
+  const parts=[];
+  if(parsed.speak) parts.push(parsed.speak);
+  for(const o of objects){
+    const tag=o.hazard?'haz':'lab';
+    parts.push(`<span class="${tag}">${o.cls}</span> ${distPhrase(o.prox)} · ~${distMeters(o.prox).toFixed(1)} m${o.hazard?' · hazard':''}`);
+  }
+  sayEl.innerHTML=parts.join('<br>');
+}
+async function curateLoop(){
+  if(!running) return;
+  if(autoCurate && apiKey && !curateInFlight) await curate();
+  setTimeout(curateLoop, CURATE_MS);
+}
+function speak(t,hold){
   try{
     const u=new SpeechSynthesisUtterance(t); u.rate=1.1;
     if(hold){ claudeBusy=true; u.onend=u.onerror=()=>{ claudeBusy=false; }; }
@@ -609,45 +535,34 @@ startBtn.addEventListener('click', async ()=>{
   startBtn.disabled=true; setStatus('Requesting camera…');
   try{
     await startCamera();
+    buildAudio(); await ctx.resume();
+    await enableGyro();                 // requested inside the gesture (iOS needs this)
     setStatus('Loading depth model…');
-    buildAudio(); await ctx.resume();          // satisfy autoplay inside the gesture
-    await loadModel();   // includes a warm-up inference + backend fallback
-    setStatus('Loading object detector…');
-    await loadDetector();
-    running=true;
-    sizeBoxCanvas();
-    startBtn.textContent='Running'; muteBtn.disabled=false; $('#flipBtn').disabled=false;
-    detectBtn.disabled=!detector; speakBtn.disabled=!detector;
-    if(!detector){ detectOn=false; detectBtn.textContent='Detect: n/a'; }
-    describeBtn.disabled = !apiKey;
-    setStatus(detector
-      ? 'Live. Point at the room — it names what it sees. Claude button for a full scene read.'
-      : 'Live (depth only — detector did not load). Claude button still works.');
-    loop();
-    detectLoop();
-  }catch(err){
-    setStatus('Error: '+err.message); startBtn.disabled=false;
-  }
+    await loadModel();
+    running=true; sizeBox();
+    startBtn.textContent='Running';
+    muteBtn.disabled=false; flipBtn.disabled=false; autoBtn.disabled=false; lockBtn.disabled=false;
+    curateBtn.disabled=!apiKey;
+    setStatus(apiKey
+      ? 'Live. Depth runs on-device; Claude curates every few seconds. Turn the phone — sounds stay put.'
+      : 'Live (depth-only bed). Add an API key to turn on Claude curation.');
+    loop(); curateLoop();
+  }catch(err){ setStatus('Error: '+err.message); startBtn.disabled=false; }
 });
-
-// Detect / Speak toggles (perf + listening-fatigue control)
-detectBtn.addEventListener('click', ()=>{
-  if(!detector) return;
-  detectOn=!detectOn;
-  detectBtn.textContent='Detect: '+(detectOn?'on':'off');
-  if(!detectOn) bctx.clearRect(0,0,boxCanvas.width,boxCanvas.height);
+curateBtn.addEventListener('click', ()=>curate());
+autoBtn.addEventListener('click', ()=>{
+  autoCurate=!autoCurate; autoBtn.textContent='Auto-curate: '+(autoCurate?'on':'off');
+  autoBtn.classList.toggle('on',autoCurate);
 });
-speakBtn.addEventListener('click', ()=>{
-  ttsOn=!ttsOn;
-  speakBtn.textContent='Speak: '+(ttsOn?'on':'off');
-  if(!ttsOn) try{ speechSynthesis.cancel(); }catch{}
+lockBtn.addEventListener('click', ()=>{
+  worldLock=!worldLock; lockBtn.textContent='World-lock: '+(worldLock?'on':'off');
+  lockBtn.classList.toggle('on',worldLock);
 });
-describeBtn.addEventListener('click', describe);
-$('#flipBtn').addEventListener('click', flipCamera);
 muteBtn.addEventListener('click', ()=>{
-  muted=!muted; if(master) master.gain.value = muted?0:0.9;
-  muteBtn.textContent = muted?'Unmute':'Mute';
+  muted=!muted; if(master) master.gain.value=muted?0:0.9;
+  muteBtn.textContent=muted?'Unmute':'Mute';
 });
+flipBtn.addEventListener('click', flipCamera);
 window.addEventListener('beforeunload', ()=>{ stream?.getTracks().forEach(t=>t.stop()); });
 </script>
 </body>

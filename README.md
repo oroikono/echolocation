@@ -1,57 +1,57 @@
-# Echolocation — working prototype
+# Echolocation — v5, an AI-curated auditory scene
 
-Camera → neural depth → spatial audio, with **Claude as a semantic prior** that reshapes the sound. Single file, no build step. `index.html`.
+Levi's original idea — phone camera → CNN depth → real-time echolocation audio — elevated from "sonify the depth map" to **"sonify an AI-curated, world-anchored auditory scene."** Single file, no build. `index.html`.
 
-## What it does
-- Rear camera → Depth Anything V2-Small (in-browser, WASM default; WebGPU via `?gpu=1`).
-- Splits the view into **left / center / right** bands, takes the nearest meaningful surface per band (85th-percentile, head/chest height), EMA-smoothed so the audio doesn't jitter.
-- Sonifies proximity three ways (toggle): **Hum** (volume + pitch, the Massiceti 2018 mapping), **Beep-rate** (Geiger-counter, the Bazilinskyy close-range mapping), or **Both**. Stereo-panned L/C/R.
-- **Live object recognition (the reflex)**: a second on-device model (YOLOS-tiny, COCO-80) runs continuously and *names* what it sees — drawing labeled boxes, speaking the nearest object fused with depth distance ("chair, close, about 1 m, on your left"), and giving each class its own earcon. The depth model alone can only say *how far*; this says *what*. **Detect** and **Speak** toggles control compute and listening fatigue.
-- **Claude as a semantic prior (the delta) — "What's there?" button**: sends the frame to Claude Haiku 4.5, which returns a 12-word spoken summary *and* a per-zone hazard class. That class **reshapes the ongoing sonification** for several seconds — a `person`, `wall`, `door`, `step`, or `object` gets a distinct timbre and salience. Open-vocabulary, so it names things the fixed COCO detector can't. The "what" rewrites the "where," instead of being a separate caption.
+## The thesis (the delta)
+Every sensory-substitution device sonifies the scene by **fixed rules** — it has no idea what matters, so it either dumps everything (fatiguing, the #1 reason these tools get abandoned) or uses a dumb nearest-surface rule. v5 puts a **vision-language model in the loop as the attention manager of the soundscape**: Claude decides, every few seconds, which 2–4 things deserve a sound, and the audio engine spends its scarce voices on exactly those. I couldn't find prior work doing this. It's also why Claude is structurally load-bearing here, not a bolt-on caption.
 
-Both the live detector and Claude feed the **same** timbre-reshaping channel — the detector keeps it current frame-to-frame; Claude enriches it on demand.
+Three engineering pieces, each grounded and phone-feasible:
+1. **Claude as curator** — ranks the scene by what a *walking* person needs (`{x, class, hazard, salience}`), open-vocabulary (names a hand, a curb, a doorway).
+2. **Looming hazards** — flagged hazards don't beep, they *loom*: tremolo rate + loudness rise with approach (the mapping that beat everything for reaction time in driving studies; new to a phone SSD).
+3. **World-locking** — the phone's gyroscope (`DeviceOrientation`) anchors each object in space, so when you turn, the curb keeps sounding from where the curb actually is. Out-of-view objects become edge arrows + panned audio.
 
-## Run it (HTTPS is mandatory for the camera)
-Pick one:
+## Built for the Pixel (one model, not two)
+The Pixel's Chrome has no working WebGPU, so everything is single-threaded WASM. Running two neural nets (depth + a detector) froze it. v5 fixes this by design: **the only on-device model is depth.** The "what" moves off-device to Claude. Two-rate system:
 
-**A. Quick local + phone over Wi-Fi**
-```bash
-cd Echolocation
-npx http-server -S -C cert.pem -K key.pem   # or any HTTPS static server
-```
-Plain `http://` will NOT get the camera. Easiest path is a free host:
+- **Fast loop — on-device, continuous (~5–10 Hz):** Depth Anything V2-Small (WASM) → proximity per bearing; gyro → world-lock pan; render spatial audio. This is the "where", smooth and local.
+- **Slow loop — Claude, ~every 3 s:** one frame → ranked objects. This is the "what". Between calls, the fast loop keeps the flagged bearings tracked from depth + gyro alone.
 
-**B. Free HTTPS host (recommended for the Pixel)**
-- Drag the folder into **Netlify Drop** (app.netlify.com/drop), or
-- Push to a repo and enable **GitHub Pages**, or
-- `npx vercel` / Cloudflare Pages.
+That split is honest to perception: you re-identify things slowly but track their distance fast.
 
-Then open the https URL in **Chrome on the Pixel**, allow camera, tap **Start**.
+## How Claude is called
+Anthropic **API**, not a subscription. The app `fetch`es `api.anthropic.com` with an **API key** from the Anthropic **Console** (console.anthropic.com) — pay-as-you-go. A Claude.ai Pro/Max plan does **not** grant API access. The sprint credits ($150/participant, CHF 6000 team prize) are API credits → make a key, paste it in the **API key** panel. Model is **Claude Haiku 4.5** (cheap/fast); a low-res frame every ~3 s is fractions of a cent.
+
+## Run it (HTTPS mandatory for camera + gyro)
+Live: **https://oroikono.github.io/echolocation/** (GitHub Pages, this repo).
+Or host yourself: drag the folder into Netlify Drop, or `npx vercel`, or any HTTPS static host. Plain `http://` won't get the camera or motion sensors.
+
+WebGPU fast path (non-Pixel devices that support it): add `?gpu=1` to the URL; it still falls back to WASM if that backend is broken.
 
 ## Using it
-1. **Start** — grants camera, loads the model (~50 MB first time, cached after). Engine pill shows WebGPU or WASM.
-2. Point at the room. Louder/faster/higher = closer. Left–right follows the obstacle.
-3. **API key** button → paste an Anthropic key (kept in memory only). Then **What's there?** speaks the scene and recolors the audio.
-4. **Hum / Beep-rate / Both** to A/B the mappings live. **Mute** to talk over it.
+1. **Start** — grants camera + motion, loads the depth model (cached after). Engine pill shows WASM/WebGPU; heading pill shows the gyro.
+2. Point at the room. The quiet **bed** (Hum/Beep) is raw depth in L/C/R. Tap **API key**, paste a Console key → Claude starts **curating**: named objects get their own world-locked voices, hazards loom.
+3. **Turn the phone** — curated sounds stay anchored in space. Toggle **World-lock: off** to feel the difference.
+4. **Auto-curate: off** → only the manual **What's there?** button calls Claude (saves credits). **Mute** to talk over it.
 
 ## Demo script (90 seconds)
-1. Start, walk toward a wall — beep rate ramps up. "That's the ambient *where* channel."
-2. Point at a chair / bottle / person — a box appears and it **says the object** with its distance, each with a different sound. "That's the live *what* reflex — no button, no key, fully on-device."
-3. Tap **What's there?** — Claude gives the full open-vocabulary scene read and the zone's tone shifts to the high-salience `person` timbre. "That's Claude reshaping the sound — the *what* changing the *where*. Open-vocabulary, names what the fixed detector can't."
-4. Toggle Hum vs Beep-rate. "Both mappings are from the SSD literature, not guessed."
+1. Start with no key — "this quiet bed is raw on-device depth, the *where*."
+2. Add key. Point at a person/doorway — Claude names them, each gets a distinct world-locked voice. "Claude is the *what*, and it decides what's worth a sound — that's the new part."
+3. Walk toward a hazard — it **looms** (faster, louder). "Looming, the fastest-reaction mapping from the driving literature, on a phone."
+4. **Turn the phone** — the object stays put / becomes an edge arrow. "World-locked from the gyro. Turn away and the curb is still behind you."
 
-## Honest caveats (say these, judges respect it)
-- Two models on WASM share the phone CPU — depth runs continuously, detection on an ~1–2 s throttle, so the soundscape stays live while names refresh a touch slower. Fine for a concept test, not the shippable product.
-- The live detector is **COCO-80**: it knows person, chair, bottle, laptop, cup, etc. — but *not* "hand". A bare hand reads as person or nothing; that's what the open-vocabulary Claude button is for.
-- Depth is **relative**, so spoken meters are an uncalibrated estimate (tune `K_NEAR`/`K_RANGE`). Metric truth needs ARCore / a metric model on the native build.
-- The API key is exposed client-side. Demo-only; a serverless proxy is the real pattern. Rotate the key after.
+## Honest caveats (say these — judges respect it)
+- Depth is **relative**: spoken metres are an uncalibrated estimate (tune `K_NEAR`/`K_RANGE`). Metric truth needs ARCore / a metric model on the native build.
+- The "what" lags the "where" by the curate cadence (~3 s) and needs connectivity; offline → graceful depth-only bed.
+- World-locking uses relative gyro heading (not true north); if it turns the wrong way on a device, flip `GYRO_SIGN`. FOV is assumed `FOV_DEG = 65`.
+- The API key is client-side (demo-only); use a serverless proxy for anything public and rotate after.
 - This is a **cane complement** for head/chest-height obstacles — not a navigation-safety system, not a cane replacement.
-- Prior art exists (EyeGuide Vision, biped NOA). The delta is the **semantic-prior fusion on a commodity phone**, not "first to fuse."
+- Prior art exists (EchoSee does live 3D-map spatial audio on iPhone LiDAR; Soundscape did GPS beacons; looming is proven in cars). The delta is **a VLM as the real-time attention/bandwidth manager of the soundscape**, world-locked, on a commodity no-LiDAR phone.
 
-## Key knobs (in `index.html`)
-- `ALPHA` — depth smoothing (0.2–0.4).
-- `TIMBRE` table — waveform / base pitch / salience per object class.
-- zone percentile (`0.85`) and the head-height crop (`0.20`–`0.80`).
-- beep interval range `lerp(0.85, 0.07, p)`.
-- `DET_THRESH` — detector confidence cutoff (0.5); `DET_GAP` — rest between detections (lower = more responsive, heavier CPU).
-- `K_NEAR` / `K_RANGE` — relative-depth → approximate meters calibration.
+## Key knobs (top of the `<script>`)
+- `CURATE_MS` — Claude cadence (the "what" rate / credit usage).
+- `MAX_OBJ` — how many voices the curator may light up at once.
+- `FOV_DEG` — assumed camera horizontal field of view (bearing math).
+- `GYRO_SIGN` — flip if world-locking turns the wrong way.
+- `K_NEAR`/`K_RANGE` — relative-depth → approximate metres.
+- `BED_GAIN`/`OBJ_GAIN` — ambient bed vs curated-object loudness.
+- `ALPHA` — depth smoothing.
