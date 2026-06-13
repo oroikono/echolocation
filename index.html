@@ -245,6 +245,13 @@ function timbreFor(z){
 
 const lerp=(a,b,t)=>a+(b-a)*t;
 
+// approximate distance from relative-depth proximity (0..1). UNCALIBRATED estimate.
+// tune K_NEAR / K_RANGE per device; metric truth needs ARCore/metric model.
+const K_NEAR = 0.4, K_RANGE = 6.0;
+function distMeters(p){ return Math.max(K_NEAR, (1-p)*K_RANGE + K_NEAR); }
+function distPhrase(p){ return p>0.75?'very close':p>0.5?'close':p>0.3?'a few meters away':'far'; }
+const SIDE = { left:'on your left', center:'ahead', right:'on your right' };
+
 // ============================================================
 //  CAMERA + DEPTH LOOP
 // ============================================================
@@ -378,9 +385,18 @@ async function describe(){
     // apply the overlay: reshapes sonification timbre/salience for 8s
     semantic = parsed.zones || {};
     semanticUntil = performance.now() + 8000;
-    const labels = Object.entries(semantic).filter(([,v])=>v).map(([z,v])=>`<span class="lab">${v}</span> ${z}`).join(' · ');
-    sayEl.innerHTML = (parsed.speak||'') + (labels?'<br>'+labels:'');
-    speak(parsed.speak||'');
+    // fuse Claude's labels (what) with live depth (how close) → "X, close, ~1.5 m, on your left"
+    const parts=[], spoken=[];
+    for(const z of ['center','left','right']){
+      const lab = semantic[z]; if(!lab) continue;
+      const p = ema[z];
+      const m = distMeters(p).toFixed(1);
+      parts.push(`<span class="lab">${lab}</span> ${distPhrase(p)} · ~${m} m · ${SIDE[z]}`);
+      spoken.push(`${lab} ${distPhrase(p)}, about ${m} meters, ${SIDE[z]}`);
+    }
+    const sentence = spoken.length ? spoken.join('. ') : (parsed.speak || 'Path looks clear');
+    sayEl.innerHTML = (parsed.speak ? `${parsed.speak}<br>` : '') + parts.join('<br>');
+    speak(sentence);
   }catch(err){
     sayEl.textContent = 'Claude error: '+err.message;
   }finally{
