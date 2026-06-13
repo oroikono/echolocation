@@ -89,6 +89,7 @@
       </div>
       <div class="row" style="margin-top:10px">
         <button class="ghost" id="muteBtn" disabled>Mute</button>
+        <button class="ghost" id="flipBtn" disabled>Flip cam</button>
         <button class="ghost" id="keyBtn">API key</button>
       </div>
       <div class="bar" style="margin-top:12px"><i id="dl"></i></div>
@@ -169,7 +170,8 @@ const TIMBRE = {
 };
 
 function buildAudio(){
-  ctx = new AudioContext({ latencyHint:'interactive' });
+  const AC = window.AudioContext || window.webkitAudioContext;
+  ctx = new AC({ latencyHint:'interactive' });
   master = ctx.createGain(); master.gain.value = 0.9; master.connect(ctx.destination);
   for(const z of ['left','center','right']){
     const osc = ctx.createOscillator();
@@ -255,12 +257,21 @@ const SIDE = { left:'on your left', center:'ahead', right:'on your right' };
 // ============================================================
 //  CAMERA + DEPTH LOOP
 // ============================================================
+let facing = 'environment';   // 'environment' = rear, 'user' = front
 async function startCamera(){
+  if(stream) stream.getTracks().forEach(t=>t.stop());
   stream = await navigator.mediaDevices.getUserMedia({
     audio:false,
-    video:{ facingMode:{ ideal:'environment' }, width:{ ideal:640 }, height:{ ideal:480 } }
+    video:{ facingMode:{ ideal: facing }, width:{ ideal:640 }, height:{ ideal:480 } }
   });
   video.srcObject = stream; await video.play();
+  // mirror only the on-screen preview for a front/selfie camera (model still sees the true frame)
+  video.style.transform = (facing==='user') ? 'scaleX(-1)' : 'none';
+}
+async function flipCamera(){
+  facing = (facing==='environment') ? 'user' : 'environment';
+  try{ await startCamera(); setStatus('Camera: '+(facing==='user'?'front':'rear')); }
+  catch(e){ setStatus('Flip failed: '+e.message); facing = (facing==='user')?'environment':'user'; }
 }
 
 async function loadModel(){
@@ -431,7 +442,7 @@ startBtn.addEventListener('click', async ()=>{
     buildAudio(); await ctx.resume();          // satisfy autoplay inside the gesture
     await loadModel();   // includes a warm-up inference + backend fallback
     running=true;
-    startBtn.textContent='Running'; muteBtn.disabled=false;
+    startBtn.textContent='Running'; muteBtn.disabled=false; $('#flipBtn').disabled=false;
     describeBtn.disabled = !apiKey;
     setStatus('Live. Point at the room. Tap the Claude button for a scene description.');
     loop();
@@ -440,6 +451,7 @@ startBtn.addEventListener('click', async ()=>{
   }
 });
 describeBtn.addEventListener('click', describe);
+$('#flipBtn').addEventListener('click', flipCamera);
 muteBtn.addEventListener('click', ()=>{
   muted=!muted; if(master) master.gain.value = muted?0:0.9;
   muteBtn.textContent = muted?'Unmute':'Mute';
