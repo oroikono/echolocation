@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<title>Echolocation — depth → sound + Claude semantic prior</title>
+<style>
+  :root{
+    --bg:#0e0f12; --panel:#16181d; --line:#262a32; --text:#e8e9ed;
+    --muted:#9aa0ab; --accent:#cc1557; --accent2:#7b1d9b; --ok:#39d98a; --warn:#ffb020;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+  #stage{position:fixed;inset:0;display:flex;flex-direction:column}
+  video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.55;filter:saturate(.8)}
+  #depthCanvas{position:absolute;right:10px;bottom:10px;width:128px;height:96px;border:1px solid var(--line);
+    border-radius:8px;background:#000;opacity:.9;z-index:3}
+  .overlay{position:relative;z-index:2;display:flex;flex-direction:column;height:100%;
+    padding:16px;gap:12px;pointer-events:none}
+  .overlay > *{pointer-events:auto}
+  header{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  h1{font-size:15px;margin:0;font-weight:600;letter-spacing:.2px}
+  .pill{font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:3px 9px;background:#0008}
+  .spacer{flex:1}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;backdrop-filter:blur(6px);background:#16181dcc}
+  label{font-size:12px;color:var(--muted);display:block;margin-bottom:5px}
+  input[type=password],input[type=text]{width:100%;padding:10px;border-radius:9px;border:1px solid var(--line);
+    background:#0d0e12;color:var(--text);font-size:14px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  button{appearance:none;border:1px solid var(--line);background:#1d2027;color:var(--text);
+    font-size:14px;font-weight:600;padding:12px 16px;border-radius:11px;cursor:pointer;flex:1;min-width:120px}
+  button.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border:none}
+  button.ghost{background:#1419;}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  .seg{display:flex;border:1px solid var(--line);border-radius:11px;overflow:hidden;flex:1}
+  .seg button{border:none;border-radius:0;background:#15171c;flex:1}
+  .seg button.on{background:var(--accent);color:#fff}
+  #say{font-size:14px;line-height:1.45;min-height:1.2em}
+  #say .lab{color:var(--accent);font-weight:700}
+  #status{font-size:12px;color:var(--muted)}
+  .bar{height:6px;border-radius:6px;background:#0d0e12;overflow:hidden;border:1px solid var(--line)}
+  .bar > i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .2s}
+  .zones{display:flex;gap:6px}
+  .zone{flex:1;height:34px;border-radius:8px;border:1px solid var(--line);background:#0d0e12;position:relative;overflow:hidden}
+  .zone > i{position:absolute;inset:auto 0 0 0;height:0%;background:linear-gradient(0deg,var(--accent),var(--accent2));transition:height .12s}
+  .zone span{position:absolute;top:3px;left:6px;font-size:10px;color:var(--muted)}
+  .tag{position:absolute;bottom:3px;left:6px;font-size:10px;color:#fff;font-weight:700;text-shadow:0 1px 2px #000}
+  small.note{color:var(--muted);font-size:11px;display:block;margin-top:8px;line-height:1.4}
+  .hidden{display:none}
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="video" playsinline muted></video>
+  <canvas id="depthCanvas" width="128" height="96"></canvas>
+
+  <div class="overlay">
+    <header>
+      <h1>Echolocation <span style="color:var(--muted);font-weight:400">· depth→sound + Claude</span></h1>
+      <span class="pill" id="enginePill">engine: —</span>
+    </header>
+
+    <div class="spacer"></div>
+
+    <!-- live zones -->
+    <div class="card" id="liveCard">
+      <label>Proximity per zone (nearest = taller)</label>
+      <div class="zones">
+        <div class="zone" id="zL"><span>L</span><i></i><div class="tag"></div></div>
+        <div class="zone" id="zC"><span>C</span><i></i><div class="tag"></div></div>
+        <div class="zone" id="zR"><span>R</span><i></i><div class="tag"></div></div>
+      </div>
+      <div id="say" style="margin-top:10px"></div>
+    </div>
+
+    <!-- controls -->
+    <div class="card">
+      <div class="row" style="margin-bottom:10px">
+        <div class="seg" id="mapSeg">
+          <button data-map="hum" class="on">Hum</button>
+          <button data-map="beep">Beep-rate</button>
+          <button data-map="both">Both</button>
+        </div>
+      </div>
+      <div class="row">
+        <button class="primary" id="startBtn">Start</button>
+        <button id="describeBtn" disabled>What's there? (Claude)</button>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="ghost" id="muteBtn" disabled>Mute</button>
+        <button class="ghost" id="keyBtn">API key</button>
+      </div>
+      <div class="bar" style="margin-top:12px"><i id="dl"></i></div>
+      <div id="status" style="margin-top:8px">Tap Start — first run downloads ~50&nbsp;MB depth model (cached after).</div>
+    </div>
+
+    <!-- key card -->
+    <div class="card hidden" id="keyCard">
+      <label for="key">Anthropic API key (kept in memory only, never stored)</label>
+      <input id="key" type="password" placeholder="sk-ant-..." autocomplete="off" />
+      <small class="note">Demo-only: the key is sent from the browser. For anything public, put a serverless proxy in front. Rotate this key after the sprint.</small>
+      <div class="row" style="margin-top:10px">
+        <button class="primary" id="keySave">Save</button>
+        <button class="ghost" id="keyClose">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0';
+env.allowLocalModels = false;
+
+// ---------- DOM ----------
+const $ = s => document.querySelector(s);
+const video = $('#video'), depthCanvas = $('#depthCanvas');
+const dctx = depthCanvas.getContext('2d');
+const startBtn = $('#startBtn'), describeBtn = $('#describeBtn'), muteBtn = $('#muteBtn');
+const statusEl = $('#status'), dlBar = $('#dl'), enginePill = $('#enginePill'), sayEl = $('#say');
+const zoneEls = { left:$('#zL'), center:$('#zC'), right:$('#zR') };
+
+// ---------- state ----------
+let estimator=null, stream=null, running=false, muted=false, mapping='hum';
+let apiKey='';
+let semantic=null, semanticUntil=0;      // Claude's reshaping overlay
+const ema = { left:0, center:0, right:0 };
+const ALPHA = 0.3;
+
+// grab canvas (model input)
+const grab = document.createElement('canvas');
+grab.width = 384; grab.height = 288;
+const gctx = grab.getContext('2d', { willReadFrequently:true });
+
+// ---------- mapping segmented control ----------
+$('#mapSeg').addEventListener('click', e=>{
+  const b = e.target.closest('button'); if(!b) return;
+  mapping = b.dataset.map;
+  [...e.currentTarget.children].forEach(c=>c.classList.toggle('on', c===b));
+});
+
+// ---------- key card ----------
+$('#keyBtn').addEventListener('click', ()=> $('#keyCard').classList.toggle('hidden'));
+$('#keyClose').addEventListener('click', ()=> $('#keyCard').classList.add('hidden'));
+$('#keySave').addEventListener('click', ()=>{
+  apiKey = $('#key').value.trim();
+  $('#keyCard').classList.add('hidden');
+  describeBtn.disabled = !(apiKey && running);
+  setStatus(apiKey ? 'API key set.' : 'No key — Claude layer disabled.');
+});
+
+function setStatus(t){ statusEl.innerHTML = t; }
+
+// ============================================================
+//  AUDIO ENGINE
+// ============================================================
+let ctx=null, master=null;
+const voices = {};   // per-zone persistent hum voice
+
+// timbre table — the "semantic prior" reshapes these
+// waveform + base pitch + a salience gain multiplier
+const TIMBRE = {
+  default: { wave:'sine',     base:140, mult:1.0 },
+  person:  { wave:'sawtooth', base:220, mult:1.6 },   // vocal-ish, high salience
+  wall:    { wave:'square',   base:90,  mult:0.9 },   // low, droney
+  door:    { wave:'triangle', base:300, mult:1.2 },   // bright, inviting
+  step:    { wave:'sawtooth', base:70,  mult:1.5 },   // low + urgent (trip hazard)
+  object:  { wave:'triangle', base:170, mult:1.1 },
+};
+
+function buildAudio(){
+  ctx = new AudioContext({ latencyHint:'interactive' });
+  master = ctx.createGain(); master.gain.value = 0.9; master.connect(ctx.destination);
+  for(const z of ['left','center','right']){
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const pan = ctx.createStereoPanner();
+    osc.type='sine'; osc.frequency.value=140; gain.gain.value=0.0001;
+    pan.pan.value = z==='left'?-0.85 : z==='right'?0.85 : 0;
+    osc.connect(gain).connect(pan).connect(master);
+    osc.start();
+    voices[z] = { osc, gain, pan };
+  }
+  startBeepScheduler();
+}
+
+// continuous hum: per-zone gain ~ proximity, pitch ~ proximity, timbre ~ semantics
+function updateHum(){
+  const now = ctx.currentTime;
+  for(const z of ['left','center','right']){
+    const p = ema[z];                      // 0..1 proximity
+    const t = timbreFor(z);
+    const v = voices[z];
+    v.osc.type = t.wave;
+    const f = t.base + p*p*520;
+    v.osc.frequency.setTargetAtTime(f, now, 0.05);
+    const audible = (mapping==='hum' || mapping==='both');
+    const g = audible ? Math.min(0.33, p*p*0.33*t.mult) : 0.0001;
+    v.gain.gain.setTargetAtTime(Math.max(0.0001,g), now, 0.05);
+  }
+}
+
+// beep-rate: closer = faster bursts, per zone, panned, timbre-colored
+let beepTimer=null; const nextBeep={left:0,center:0,right:0};
+function startBeepScheduler(){
+  clearInterval(beepTimer);
+  beepTimer = setInterval(()=>{
+    if(!ctx) return;
+    const active = (mapping==='beep' || mapping==='both');
+    if(!active) return;
+    const horizon = ctx.currentTime + 0.12;
+    for(const z of ['left','center','right']){
+      const p = ema[z];
+      if(p < 0.12) continue;                       // silence far/empty zones
+      const interval = lerp(0.85, 0.07, p);        // near = rapid fire
+      if(nextBeep[z] < ctx.currentTime) nextBeep[z] = ctx.currentTime + 0.02;
+      while(nextBeep[z] < horizon){
+        scheduleBeep(z, nextBeep[z], p);
+        nextBeep[z] += interval;
+      }
+    }
+  }, 25);
+}
+function scheduleBeep(z, t, p){
+  const tb = timbreFor(z);
+  const o = ctx.createOscillator(), g = ctx.createGain(), pan = ctx.createStereoPanner();
+  o.type = tb.wave;
+  o.frequency.value = tb.base*1.5 + p*400;
+  pan.pan.value = z==='left'?-0.85 : z==='right'?0.85 : 0;
+  o.connect(g).connect(pan).connect(master);
+  const amp = Math.min(0.4, 0.18 + p*0.22) * tb.mult;
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(amp, t+0.006);
+  g.gain.exponentialRampToValueAtTime(0.0001, t+0.075);
+  o.start(t); o.stop(t+0.09);
+}
+
+// which timbre applies to a zone right now (Claude overlay if fresh)
+function timbreFor(z){
+  if(semantic && performance.now() < semanticUntil && semantic[z]){
+    return TIMBRE[semantic[z]] || TIMBRE.default;
+  }
+  return TIMBRE.default;
+}
+
+const lerp=(a,b,t)=>a+(b-a)*t;
+
+// ============================================================
+//  CAMERA + DEPTH LOOP
+// ============================================================
+async function startCamera(){
+  stream = await navigator.mediaDevices.getUserMedia({
+    audio:false,
+    video:{ facingMode:{ ideal:'environment' }, width:{ ideal:640 }, height:{ ideal:480 } }
+  });
+  video.srcObject = stream; await video.play();
+}
+
+async function loadModel(){
+  const onProgress = e=>{
+    if(e.status==='progress' && e.total){
+      dlBar.style.width = Math.round((e.loaded/e.total)*100)+'%';
+      setStatus(`Downloading depth model… ${Math.round((e.loaded/e.total)*100)}%`);
+    }
+  };
+  try{
+    if(!navigator.gpu) throw new Error('no-webgpu');
+    estimator = await pipeline('depth-estimation','onnx-community/depth-anything-v2-small',
+      { device:'webgpu', dtype:'fp16', progress_callback:onProgress });
+    enginePill.textContent='engine: WebGPU';
+  }catch(err){
+    setStatus('WebGPU unavailable — using WASM (slower).');
+    estimator = await pipeline('depth-estimation','onnx-community/depth-anything-v2-small',
+      { device:'wasm', dtype:'q8', progress_callback:onProgress });
+    enginePill.textContent='engine: WASM';
+  }
+  dlBar.style.width='100%';
+}
+
+// sample three vertical bands; proximity = high-percentile of (near) depth.
+// DA-V2 output: brighter (larger value) = nearer.
+function readZones(depth){
+  const { data, width, height } = depth;
+  const bands = { left:[0,width/3], center:[width/3,2*width/3], right:[2*width/3,width] };
+  // focus on central vertical region (chest/head height), skip floor + ceiling
+  const y0 = Math.floor(height*0.20), y1 = Math.floor(height*0.80);
+  const out = {};
+  for(const z in bands){
+    const [x0,x1] = bands[z].map(Math.floor);
+    let vals=[];
+    for(let y=y0;y<y1;y+=2){
+      for(let x=x0;x<x1;x+=2){
+        vals.push(data[y*width+x]);
+      }
+    }
+    vals.sort((a,b)=>a-b);
+    // 85th percentile of nearness → robust "closest meaningful surface"
+    const p = vals[Math.floor(vals.length*0.85)] || 0;
+    out[z] = p/255;
+  }
+  return out;
+}
+
+function paintDepth(depth){
+  const { data, width, height } = depth;
+  const img = dctx.createImageData(width, height);
+  for(let i=0;i<data.length;i++){
+    const v=data[i]; img.data[i*4]=v; img.data[i*4+1]=v*0.4; img.data[i*4+2]=255-v; img.data[i*4+3]=255;
+  }
+  // scale into 128x96
+  const tmp=document.createElement('canvas'); tmp.width=width; tmp.height=height;
+  tmp.getContext('2d').putImageData(img,0,0);
+  dctx.drawImage(tmp,0,0,depthCanvas.width,depthCanvas.height);
+}
+
+function paintZones(){
+  const semFresh = semantic && performance.now()<semanticUntil;
+  for(const z of ['left','center','right']){
+    const el = zoneEls[z];
+    el.querySelector('i').style.height = Math.round(ema[z]*100)+'%';
+    const tag = el.querySelector('.tag');
+    tag.textContent = (semFresh && semantic[z]) ? semantic[z] : '';
+  }
+}
+
+async function loop(){
+  if(!running) return;
+  try{
+    gctx.drawImage(video,0,0,grab.width,grab.height);
+    const { depth } = await estimator(grab);
+    const raw = readZones(depth);
+    for(const z of ['left','center','right']) ema[z] = ALPHA*raw[z] + (1-ALPHA)*ema[z];
+    updateHum();
+    paintDepth(depth);
+    paintZones();
+  }catch(err){ console.error(err); }
+  // throttle ~10fps
+  setTimeout(()=>requestAnimationFrame(loop), 90);
+}
+
+// ============================================================
+//  CLAUDE SEMANTIC PRIOR  (the delta)
+// ============================================================
+const SYS = `You are the perception layer of an audio navigation aid for a blind user.
+Look at the image. Respond with ONLY compact JSON, no prose:
+{"speak":"<=12 word spoken summary, hazards first",
+ "zones":{"left":<class|null>,"center":<class|null>,"right":<class|null>}}
+class is one of: "person","wall","door","step","object", or null if that third of the view is clear/far.
+"step" = stairs, curb, drop, or trip hazard. Map objects to the third of the frame they occupy.`;
+
+async function describe(){
+  if(!apiKey){ $('#keyCard').classList.remove('hidden'); return; }
+  describeBtn.disabled=true; const old=describeBtn.textContent; describeBtn.textContent='…thinking';
+  try{
+    const snap=document.createElement('canvas'); snap.width=512; snap.height=384;
+    snap.getContext('2d').drawImage(video,0,0,snap.width,snap.height);
+    const b64 = snap.toDataURL('image/jpeg',0.7).split(',')[1];
+    const res = await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{
+        'x-api-key':apiKey,
+        'anthropic-version':'2023-06-01',
+        'anthropic-dangerous-direct-browser-access':'true',
+        'content-type':'application/json'
+      },
+      body:JSON.stringify({
+        model:'claude-haiku-4-5', max_tokens:200, system:SYS,
+        messages:[{role:'user',content:[
+          {type:'image',source:{type:'base64',media_type:'image/jpeg',data:b64}},
+          {type:'text',text:'Describe for navigation.'}
+        ]}]
+      })
+    });
+    const json = await res.json();
+    if(json.error) throw new Error(json.error.message||'API error');
+    const txt = json.content?.[0]?.text || '{}';
+    const parsed = JSON.parse(txt.slice(txt.indexOf('{'), txt.lastIndexOf('}')+1));
+    // apply the overlay: reshapes sonification timbre/salience for 8s
+    semantic = parsed.zones || {};
+    semanticUntil = performance.now() + 8000;
+    const labels = Object.entries(semantic).filter(([,v])=>v).map(([z,v])=>`<span class="lab">${v}</span> ${z}`).join(' · ');
+    sayEl.innerHTML = (parsed.speak||'') + (labels?'<br>'+labels:'');
+    speak(parsed.speak||'');
+  }catch(err){
+    sayEl.textContent = 'Claude error: '+err.message;
+  }finally{
+    describeBtn.textContent=old; describeBtn.disabled=false;
+  }
+}
+function speak(t){ try{ const u=new SpeechSynthesisUtterance(t); u.rate=1.1; speechSynthesis.cancel(); speechSynthesis.speak(u);}catch{} }
+
+// ============================================================
+//  WIRING
+// ============================================================
+startBtn.addEventListener('click', async ()=>{
+  if(running) return;
+  startBtn.disabled=true; setStatus('Requesting camera…');
+  try{
+    await startCamera();
+    setStatus('Loading depth model…');
+    buildAudio(); await ctx.resume();          // satisfy autoplay inside the gesture
+    await loadModel();
+    // warm-up
+    gctx.drawImage(video,0,0,grab.width,grab.height); await estimator(grab);
+    running=true;
+    startBtn.textContent='Running'; muteBtn.disabled=false;
+    describeBtn.disabled = !apiKey;
+    setStatus('Live. Point at the room. Tap the Claude button for a scene description.');
+    loop();
+  }catch(err){
+    setStatus('Error: '+err.message); startBtn.disabled=false;
+  }
+});
+describeBtn.addEventListener('click', describe);
+muteBtn.addEventListener('click', ()=>{
+  muted=!muted; if(master) master.gain.value = muted?0:0.9;
+  muteBtn.textContent = muted?'Unmute':'Mute';
+});
+window.addEventListener('beforeunload', ()=>{ stream?.getTracks().forEach(t=>t.stop()); });
+</script>
+</body>
+</html>
