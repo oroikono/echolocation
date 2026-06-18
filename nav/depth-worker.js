@@ -43,6 +43,32 @@ function sectorDistances(data, H, W, n = 7, rt = 0.10, rb = 0.80, pct = 20) {
   return out;
 }
 
+// jet-like colormap: t in [0,1] -> [r,g,b] (near = red/hot, far = blue)
+function turbo(t) {
+  const r = Math.round(255 * Math.min(Math.max(1.5 - Math.abs(4 * t - 3), 0), 1));
+  const g = Math.round(255 * Math.min(Math.max(1.5 - Math.abs(4 * t - 2), 0), 1));
+  const b = Math.round(255 * Math.min(Math.max(1.5 - Math.abs(4 * t - 1), 0), 1));
+  return [r, g, b];
+}
+
+// small colorized depth thumbnail (per-frame normalized; near = hot), like live.py colorize_depth
+function depthThumb(data, H, W, DW = 96, DH = 72) {
+  let mn = Infinity, mx = -Infinity;
+  for (let i = 0; i < data.length; i += 7) { const v = data[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
+  const inv = 1 / (mx - mn + 1e-6);
+  const rgba = new Uint8ClampedArray(DW * DH * 4);
+  for (let y = 0; y < DH; y++) {
+    const sy = Math.floor(y * H / DH);
+    for (let x = 0; x < DW; x++) {
+      const sx = Math.floor(x * W / DW);
+      const t = 1 - (data[sy * W + sx] - mn) * inv;     // near = 1 = hot
+      const [r, g, b] = turbo(t); const o = (y * DW + x) * 4;
+      rgba[o] = r; rgba[o + 1] = g; rgba[o + 2] = b; rgba[o + 3] = 255;
+    }
+  }
+  return { rgba, DW, DH };
+}
+
 self.onmessage = async (e) => {
   const m = e.data;
   try {
@@ -54,7 +80,8 @@ self.onmessage = async (e) => {
       const H = dims.length === 3 ? dims[1] : dims[0];
       const W = dims.length === 3 ? dims[2] : dims[1];
       const dist = sectorDistances(pd.data, H, W);
-      self.postMessage({ type: 'dist', dist: Array.from(dist), backend: be });
+      const th = depthThumb(pd.data, H, W);
+      self.postMessage({ type: 'dist', dist: Array.from(dist), depth: th.rgba.buffer, dw: th.DW, dh: th.DH, backend: be }, [th.rgba.buffer]);
     }
   } catch (err) {
     self.postMessage({ type: 'error', message: String((err && err.message) || err) });

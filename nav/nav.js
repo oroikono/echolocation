@@ -12,6 +12,8 @@ const PARAMS = { mode: 'continuous', near_m: 0.5, far_m: 3.0, side_hz: 300, cent
 const $ = (id) => document.getElementById(id);
 const video = $('cam'), statusEl = $('status'), startBtn = $('start');
 const grid = $('grid').getContext('2d');
+const depthCtx = $('depth').getContext('2d');
+const dthumb = document.createElement('canvas');
 const cap = document.createElement('canvas');
 
 let ctx = null, node = null, worker = null, running = false, busy = false, dists = new Array(N).fill(PARAMS.far_m), backend = '';
@@ -37,6 +39,7 @@ function startWorker() {
       backend = m.backend || backend;
       dists = m.dist;
       node && node.port.postMessage({ dist: dists });
+      drawDepth(m);
       drawGrid();
       busy = false;
       const open = dists.map((d, i) => [d, i]).reduce((a, b) => (b[0] > a[0] ? b : a))[1];
@@ -55,6 +58,15 @@ function loop() {
   const img = c.getImageData(0, 0, cap.width, cap.height);
   busy = true;
   worker.postMessage({ type: 'infer', buf: img.data.buffer, width: cap.width, height: cap.height }, [img.data.buffer]);
+}
+
+// colorized metric-depth view (the "thermo" map, like live.py)
+function drawDepth(m) {
+  if (!m.depth) return;
+  dthumb.width = m.dw; dthumb.height = m.dh;
+  dthumb.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(m.depth), m.dw, m.dh), 0, 0);
+  depthCtx.imageSmoothingEnabled = true;
+  depthCtx.drawImage(dthumb, 0, 0, depthCtx.canvas.width, depthCtx.canvas.height);
 }
 
 // simple sector readout (mirrors live.py overlay: per-sector proximity bars + open arrow)
