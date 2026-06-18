@@ -33,8 +33,21 @@ async function listCameras() {
     const sel = $('camsel'); if (!sel || !devs.length) return;
     sel.innerHTML = '';
     devs.forEach((d, i) => { const o = document.createElement('option'); o.value = d.deviceId; o.textContent = d.label || ('camera ' + (i + 1)); sel.appendChild(o); });
-    sel.style.display = devs.length > 1 ? '' : 'none';   // pick the 0.5x ultra-wide here
+    sel.style.display = devs.length > 1 ? '' : 'none';
   } catch {}
+}
+// the real way to reach the 0.5x ultra-wide on Android: zoom below 1x (if the device allows it)
+async function applyZoom(z) { try { const tr = stream && stream.getVideoTracks()[0]; if (tr) await tr.applyConstraints({ advanced: [{ zoom: z }] }); } catch {} }
+function setupZoom() {
+  const tr = stream && stream.getVideoTracks()[0];
+  const caps = tr && tr.getCapabilities ? tr.getCapabilities() : null;
+  const zc = $('zoom'), lbl = $('zoomlbl');
+  if (caps && caps.zoom && caps.zoom.max > caps.zoom.min) {
+    zc.min = caps.zoom.min; zc.max = caps.zoom.max; zc.step = caps.zoom.step || 0.1;
+    const cur = (tr.getSettings && tr.getSettings().zoom) || caps.zoom.min;
+    zc.value = cur; zc.style.display = ''; lbl.style.display = '';
+    lbl.textContent = `zoom ${(+cur).toFixed(2)}× · min ${(+caps.zoom.min).toFixed(2)}×`;
+  } else { zc.style.display = 'none'; lbl.style.display = ''; lbl.textContent = 'zoom not adjustable on this camera'; }
 }
 
 async function startAudio() {
@@ -111,6 +124,7 @@ async function start() {
   try {
     await openCamera($('camsel').value || null);
     await listCameras();
+    setupZoom();
     await startAudio();
     startWorker();
     running = true; startBtn.textContent = 'running';
@@ -128,7 +142,9 @@ for (const m of ['continuous', 'pulse', 'sweep']) {
     document.querySelectorAll('.mode').forEach((b) => b.classList.toggle('on', b.id === 'm_' + m));
   });
 }
-$('camsel').addEventListener('change', async () => { if (running) { try { await openCamera($('camsel').value); } catch {} } });
+$('camsel').addEventListener('change', async () => { if (running) { try { await openCamera($('camsel').value); setupZoom(); } catch {} } });
+$('zoom').addEventListener('input', () => { const z = parseFloat($('zoom').value); applyZoom(z); $('zoomlbl').textContent = `zoom ${z.toFixed(2)}×`; });
+$('widest').addEventListener('click', () => { const z = parseFloat($('zoom').min || '1'); $('zoom').value = z; applyZoom(z); $('zoomlbl').textContent = `zoom ${z.toFixed(2)}× (widest)`; });
 $('far_dn').addEventListener('click', () => setFar(-0.5));
 $('far_up').addEventListener('click', () => setFar(+0.5));
 function setFar(d) { PARAMS.far_m = Math.max(2.0, Math.min(15.0, PARAMS.far_m + d)); node && node.port.postMessage({ params: { far_m: PARAMS.far_m } }); }
