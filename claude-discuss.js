@@ -40,7 +40,7 @@ export function createDiscussion(opts = {}) {
   let history = [];
   let anchor = null;
   let busy = false, listening = false, lastAnswer = '', voiceReady = false;
-  let aborted = false, warnedNoKey = false, sessionActive = false;
+  let aborted = false, warnedNoKey = false, sessionActive = false, micBlocked = false;
   const recog = makeRecognizer();
   function setActive(b) { if (b === sessionActive) return; sessionActive = b; try { cfg.onActive(b); } catch {} }
 
@@ -164,11 +164,12 @@ export function createDiscussion(opts = {}) {
     if (!SR) return null;
     const r = new SR(); r.lang = 'en-US'; r.interimResults = false; r.maxAlternatives = 1;
     r.onresult = (e) => { const t = (e.results[0][0].transcript || '').trim(); listening = false; if (t) ask(t); };
-    r.onerror = () => { listening = false; };
-    r.onend = () => { listening = false; setTimeout(() => { if (!busy && !listening && sessionActive) setActive(false); }, 600); }; // resume nav audio when idle
+    r.onerror = (e) => { listening = false; const err = e && e.error; if (err === 'not-allowed' || err === 'service-not-allowed') { micBlocked = true; say('microphone blocked — allow the mic to talk to it.'); } };
+    // keep the discussion mic live across pauses; only stop on "stop" / long-press
+    r.onend = () => { listening = false; if (sessionActive && !busy && !aborted && !micBlocked) setTimeout(() => { if (sessionActive && !busy && !listening && !aborted && !micBlocked) armMic(); }, 350); };
     return r;
   }
-  function armMic() { if (!recog || busy || listening || aborted) return; try { listening = true; recog.start(); say('listening… (say "stop" or long-press to stop)'); } catch {} }
+  function armMic() { if (!recog || busy || listening || aborted || micBlocked) return; try { listening = true; recog.start(); say('listening… (say "stop" or long-press to stop)'); } catch {} }
   async function ask(text) {
     if (STOP_WORDS.test(text)) { stopAll(); return; }
     if (!anchor) return;
