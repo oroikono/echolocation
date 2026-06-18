@@ -131,7 +131,10 @@ async function start() {
     running = true; startBtn.textContent = 'running';
     setStatus('loading metric depth model…');
     // double-tap Claude layer (paste key kept in memory; swap to proxy for public)
-    createDiscussion({ video, getApiKey: () => $('key').value.trim(), model: 'claude-sonnet-4-6' });
+    createDiscussion({
+      video, getApiKey: () => $('key').value.trim(), model: 'claude-sonnet-4-6',
+      onActive: (a) => { if (node) node.port.postMessage({ params: { master: a ? 0.0 : PARAMS.master } }); }, // duck nav hum during Claude
+    });
     loop();
   } catch (e) { setStatus('error: ' + e.message); startBtn.disabled = false; }
 }

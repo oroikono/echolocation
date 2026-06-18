@@ -32,6 +32,7 @@ export function createDiscussion(opts = {}) {
     maxTurns: 6,
     systemPrompt: DEFAULT_SYSTEM,
     onStatus: () => {},
+    onActive: () => {},           // (true) when a description/chat is active, (false) when it ends — host ducks nav audio
     ...opts,
   };
   if (!cfg.video) throw new Error('createDiscussion: opts.video (HTMLVideoElement) is required');
@@ -39,8 +40,9 @@ export function createDiscussion(opts = {}) {
   let history = [];
   let anchor = null;
   let busy = false, listening = false, lastAnswer = '', voiceReady = false;
-  let aborted = false, warnedNoKey = false;
+  let aborted = false, warnedNoKey = false, sessionActive = false;
   const recog = makeRecognizer();
+  function setActive(b) { if (b === sessionActive) return; sessionActive = b; try { cfg.onActive(b); } catch {} }
 
   // stop by voice; available() = is Claude usable at all (key pasted, or a proxy endpoint)
   const STOP_WORDS = /\b(stop|quiet|cancel|silence|enough|never\s?mind|shut\s?up)\b/i;
@@ -124,7 +126,7 @@ export function createDiscussion(opts = {}) {
       if (tries >= 3) { buzz([200]); say(bad); speak(bad); return; }
       buzz([40, 60, 40]); say('one sec, looking again…'); await sleep(350);
     }
-    buzz([60]);
+    buzz([60]); setActive(true);              // duck the nav hum while we describe/discuss
     anchor = frame.dataURL.split(',')[1];
     history = [{ role: 'user', content: [
       { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: anchor }, cache_control: { type: 'ephemeral' } },
@@ -148,7 +150,7 @@ export function createDiscussion(opts = {}) {
     aborted = true;
     try { speechSynthesis.cancel(); } catch {}
     listening = false; try { recog && recog.stop(); } catch {}
-    busy = false; buzz([30]); say('stopped — double-tap to look again.');
+    busy = false; setActive(false); buzz([30]); say('stopped — double-tap to look again.');
   }
   function warnNoKey() {
     buzz([120]);
@@ -163,7 +165,7 @@ export function createDiscussion(opts = {}) {
     const r = new SR(); r.lang = 'en-US'; r.interimResults = false; r.maxAlternatives = 1;
     r.onresult = (e) => { const t = (e.results[0][0].transcript || '').trim(); listening = false; if (t) ask(t); };
     r.onerror = () => { listening = false; };
-    r.onend = () => { listening = false; };
+    r.onend = () => { listening = false; setTimeout(() => { if (!busy && !listening && sessionActive) setActive(false); }, 600); }; // resume nav audio when idle
     return r;
   }
   function armMic() { if (!recog || busy || listening || aborted) return; try { listening = true; recog.start(); say('listening… (say "stop" or long-press to stop)'); } catch {} }
