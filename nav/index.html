@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<title>Echolocation — AISprint engine (web)</title>
+<style>
+  :root{ --bg:#0e0f12; --panel:#16181d; --line:#262a32; --text:#e8e9ed; --muted:#9aa0ab; --accent:#cc1557; }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:-apple-system,system-ui,sans-serif}
+  #cam{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;opacity:.45}
+  .wrap{position:relative;z-index:2;display:flex;flex-direction:column;height:100%;padding:12px;gap:10px}
+  .spacer{flex:1}
+  .card{background:#16181dcc;border:1px solid var(--line);border-radius:14px;padding:12px;backdrop-filter:blur(6px)}
+  h1{font-size:14px;margin:0 0 2px;font-weight:600}
+  #status{font-size:12px;color:var(--muted);margin-top:6px}
+  canvas#grid{width:100%;height:84px;background:#0d0e12;border:1px solid var(--line);border-radius:10px;display:block;margin-top:8px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
+  input,button{font-size:14px;padding:11px;border-radius:10px;border:1px solid var(--line);background:#15171c;color:var(--text)}
+  input{flex:1}
+  button{font-weight:600;cursor:pointer;flex:1;min-width:84px}
+  button.primary{background:linear-gradient(135deg,#cc1557,#7b1d9b);border:none}
+  button.mode.on{outline:2px solid var(--accent)}
+  small{color:var(--muted);font-size:11px;line-height:1.4;display:block;margin-top:8px}
+</style>
+</head>
+<body>
+<video id="cam" playsinline muted></video>
+<div class="wrap">
+  <div class="card">
+    <h1>Echolocation · AISprint engine on the web</h1>
+    <small>Metric depth → 7 sectors → spatial audio (continuous / pulse / sweep). <b>Double-tap</b> the screen to ask Claude to describe the scene.</small>
+    <canvas id="grid" width="700" height="84"></canvas>
+    <div id="status">Paste key (optional, for Claude), tap Start, allow camera + mic. Wear headphones.</div>
+  </div>
+
+  <div class="spacer"></div>
+
+  <div class="card">
+    <div class="row">
+      <input id="key" type="password" placeholder="sk-ant-… (only for double-tap Claude; in memory only)" autocomplete="off" />
+    </div>
+    <div class="row">
+      <button class="primary" id="start">Start</button>
+      <button class="mode on" id="m_continuous">Continuous</button>
+      <button class="mode" id="m_pulse">Pulse</button>
+      <button class="mode" id="m_sweep">Sweep</button>
+    </div>
+    <div class="row">
+      <button id="far_dn">range −</button>
+      <button id="far_up">range +</button>
+    </div>
+  </div>
+</div>
+<script type="module" src="./nav.js"></script>
+</body>
+</html>
