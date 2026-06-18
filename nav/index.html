@@ -4,6 +4,8 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <title>Echolocation — AISprint engine (web)</title>
+<!-- cross-origin isolation -> multi-threaded WASM (faster depth on phones). Auto-reloads once on first load. -->
+<script src="coi-serviceworker.js"></script>
 <style>
   :root{ --bg:#0e0f12; --panel:#16181d; --line:#262a32; --text:#e8e9ed; --muted:#9aa0ab; --accent:#cc1557; }
   *{box-sizing:border-box}

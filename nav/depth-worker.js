@@ -8,6 +8,8 @@ env.allowLocalModels = true;
 env.localModelPath = new URL('models/', self.location.href).href;
 // dev flag: open the app with ?fresh=1 to bypass the model cache (no manual cache-clearing while iterating)
 if (new URLSearchParams(self.location.search).has('fresh')) env.useBrowserCache = false;
+// use all cores for WASM (only takes effect when the page is cross-origin isolated; see coi-serviceworker.js)
+try { env.backends.onnx.wasm.numThreads = Math.min(8, (self.navigator && self.navigator.hardwareConcurrency) || 4); } catch {}
 
 const MODEL = 'depth-anything-v2-metric-indoor-small';
 let estimator = null, backend = '';
