@@ -148,4 +148,14 @@ $('zoom').addEventListener('input', () => { const z = parseFloat($('zoom').value
 $('widest').addEventListener('click', () => { const z = parseFloat($('zoom').min || '1'); $('zoom').value = z; applyZoom(z); $('zoomlbl').textContent = `zoom ${z.toFixed(2)}× (widest)`; });
 $('far_dn').addEventListener('click', () => setFar(-0.5));
 $('far_up').addEventListener('click', () => setFar(+0.5));
+
+// API key: paste once, saved on THIS device (localStorage). No submit — claude-discuss reads it live.
+const keyEl = $('key');
+if (keyEl) {
+  keyEl.value = localStorage.ANTHROPIC_KEY || '';
+  const saveKey = () => { localStorage.ANTHROPIC_KEY = keyEl.value.trim(); setStatus(keyEl.value.trim() ? 'API key saved on this device ✓ — double-tap to describe' : 'API key cleared'); };
+  keyEl.addEventListener('input', saveKey);
+  keyEl.addEventListener('change', saveKey);
+}
+
 function setFar(d) { PARAMS.far_m = Math.max(2.0, Math.min(15.0, PARAMS.far_m + d)); node && node.port.postMessage({ params: { far_m: PARAMS.far_m } }); }
