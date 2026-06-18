@@ -3,15 +3,16 @@
 // Drop into ANY echolocation web app. You give it a <video>; it adds the rest:
 //   double-tap  = capture a fresh anchor frame + describe it, then start a voice chat about it
 //   single-tap  = ask a follow-up (also interrupts speech)
-//   long-press  = repeat the last answer
+//   long-press  = STOP everything (cancel speech, stop listening, end the conversation)
+//   say "stop" / "quiet" / "cancel" = same stop, by voice
 //   "look again" = just double-tap again -> new frame, fresh conversation
+//
+// OPTIONAL: if no API key (and no proxy) is configured, the navigation app still
+// runs fully; double-tap just politely says scene description is off.
 //
 // Voice in (SpeechRecognition) and out (speechSynthesis) run on-device for free.
 // Only the Claude calls cost money -> they go to `endpoint` with either a pasted
 // key (dev) or, in production, a serverless proxy that holds the key (getApiKey -> null).
-//
-// It listens on window (not a blocking overlay), skipping taps on buttons/inputs,
-// so it coexists with the host app's own UI (Lev's controls, your v5 panel, etc.).
 
 const DEFAULT_SYSTEM = `You are the eyes of a blind person who is walking. You are looking at ONE photo they just captured; every question in this conversation is about that same photo.
 - First answer: at most two short spoken sentences. Hazards and obstacles first (steps, curbs, poles, people, doors, low things at head height), then a brief layout. Use side/clock directions ("on your left", "straight ahead").
@@ -26,19 +27,25 @@ export function createDiscussion(opts = {}) {
     getApiKey: () => null,        // dev: returns pasted key; production proxy: null
     model: 'claude-sonnet-4-6',
     maxTokens: 350,
-    captureWidth: 768,            // long-edge px of the frame sent to Claude
+    captureWidth: 768,
     jpegQuality: 0.6,
-    maxTurns: 6,                  // keep first (image) message + last N exchanges
+    maxTurns: 6,
     systemPrompt: DEFAULT_SYSTEM,
     onStatus: () => {},
     ...opts,
   };
   if (!cfg.video) throw new Error('createDiscussion: opts.video (HTMLVideoElement) is required');
 
-  let history = [];      // message array; the image lives only in history[0]
-  let anchor = null;     // base64 of the current anchor frame
+  let history = [];
+  let anchor = null;
   let busy = false, listening = false, lastAnswer = '', voiceReady = false;
+  let aborted = false, warnedNoKey = false;
   const recog = makeRecognizer();
+
+  // stop by voice; available() = is Claude usable at all (key pasted, or a proxy endpoint)
+  const STOP_WORDS = /\b(stop|quiet|cancel|silence|enough|never\s?mind|shut\s?up)\b/i;
+  const usingProxy = cfg.endpoint && !/api\.anthropic\.com/i.test(cfg.endpoint);
+  const available = () => usingProxy || !!(cfg.getApiKey && cfg.getApiKey());
 
   // ---- minimal caption (non-blocking) ----
   const caption = document.createElement('div');
@@ -77,10 +84,10 @@ export function createDiscussion(opts = {}) {
     x.drawImage(v, 0, 0, w, h);
     return { dataURL: c.toDataURL('image/jpeg', cfg.jpegQuality), ctx: x, w, h };
   }
-  function gateReason({ ctx, w, h }) {              // null = good, else spoken reason
+  function gateReason({ ctx, w, h }) {
     const d = ctx.getImageData(0, 0, w, h).data;
     let sum = 0, n = 0, prev = 0, edge = 0;
-    for (let i = 0; i < d.length; i += 32) {        // sample every 8th pixel
+    for (let i = 0; i < d.length; i += 32) {
       const l = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
       sum += l; n++; edge += Math.abs(l - prev); prev = l;
     }
@@ -94,7 +101,8 @@ export function createDiscussion(opts = {}) {
   // ---- triggers ----
   async function onDoubleTap() {
     if (busy) return;
-    unlockAudio(); speechSynthesis.cancel();
+    if (!available()) return warnNoKey();
+    aborted = false; unlockAudio(); speechSynthesis.cancel();
     let frame, tries = 0;
     while (true) {
       frame = grabFrame();
@@ -104,22 +112,37 @@ export function createDiscussion(opts = {}) {
       if (tries >= 3) { buzz([200]); say(bad); speak(bad); return; }
       buzz([40, 60, 40]); say('one sec, looking again…'); await sleep(350);
     }
-    buzz([60]);                                     // captured
+    buzz([60]);
     anchor = frame.dataURL.split(',')[1];
     history = [{ role: 'user', content: [
       { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: anchor }, cache_control: { type: 'ephemeral' } },
       { type: 'text', text: 'Describe what is in front of me for safe walking. Hazards first.' },
     ] }];
     await turn();
+    if (aborted) return;
     await waitSpeechDone(); armMic();
   }
   function onSingleTap() {
+    if (!available()) return warnNoKey();
     unlockAudio();
-    if (busy || speechSynthesis.speaking) { speechSynthesis.cancel(); }
+    if (speechSynthesis.speaking) speechSynthesis.cancel();
+    aborted = false;
     if (!anchor) return onDoubleTap();
     armMic();
   }
-  function onLongPress() { if (lastAnswer) { buzz([30]); speechSynthesis.cancel(); speak(lastAnswer); } }
+  function onLongPress() { stopAll(); }
+
+  function stopAll() {
+    aborted = true;
+    try { speechSynthesis.cancel(); } catch {}
+    listening = false; try { recog && recog.stop(); } catch {}
+    busy = false; buzz([30]); say('stopped — double-tap to look again.');
+  }
+  function warnNoKey() {
+    buzz([120]);
+    const m = 'Scene description is off. Add an API key to turn it on.';
+    say(m); if (!warnedNoKey) { unlockAudio(); speak(m); warnedNoKey = true; }
+  }
 
   // ---- voice in ----
   function makeRecognizer() {
@@ -131,11 +154,14 @@ export function createDiscussion(opts = {}) {
     r.onend = () => { listening = false; };
     return r;
   }
-  function armMic() { if (!recog || busy || listening) return; try { listening = true; recog.start(); say('listening… (single-tap to talk)'); } catch {} }
+  function armMic() { if (!recog || busy || listening || aborted) return; try { listening = true; recog.start(); say('listening… (say "stop" or long-press to stop)'); } catch {} }
   async function ask(text) {
+    if (STOP_WORDS.test(text)) { stopAll(); return; }
     if (!anchor) return;
+    aborted = false;
     history.push({ role: 'user', content: [{ type: 'text', text }] });
     await turn();
+    if (aborted) return;
     await waitSpeechDone(); armMic();
   }
 
@@ -145,7 +171,7 @@ export function createDiscussion(opts = {}) {
     return [history[0], ...history.slice(-cfg.maxTurns * 2)];
   }
   async function turn() {
-    busy = true; say('…thinking');
+    busy = true; aborted = false; say('…thinking');
     const key = cfg.getApiKey && cfg.getApiKey();
     const headers = { 'content-type': 'application/json' };
     if (key) {
@@ -164,6 +190,7 @@ export function createDiscussion(opts = {}) {
       if (!res.ok || !res.body) throw new Error((await res.text()).slice(0, 140));
       const reader = res.body.getReader(), dec = new TextDecoder(); let buf = '';
       for (;;) {
+        if (aborted) { try { reader.cancel(); } catch {} break; }
         const { value, done } = await reader.read(); if (done) break;
         buf += dec.decode(value, { stream: true });
         let i;
@@ -174,30 +201,30 @@ export function createDiscussion(opts = {}) {
             const j = JSON.parse(line.slice(5).trim());
             if (j.type === 'content_block_delta' && j.delta?.type === 'text_delta') {
               full += j.delta.text; say(full);
-              const m = full.slice(spoke).match(/^[\s\S]*?[.!?]\s/);   // speak each finished sentence
+              const m = full.slice(spoke).match(/^[\s\S]*?[.!?]\s/);
               if (m) { speak(full.slice(spoke, spoke + m[0].length)); spoke += m[0].length; }
             }
           } catch {}
         }
       }
-      if (spoke < full.length) speak(full.slice(spoke));
+      if (!aborted && spoke < full.length) speak(full.slice(spoke));
       history.push({ role: 'assistant', content: full || '(no answer)' });
       lastAnswer = full;
     } catch (err) {
-      const msg = 'Error: ' + err.message; say(msg); speak("Sorry, I couldn't reach Claude.");
+      if (!aborted) { const msg = 'Error: ' + err.message; say(msg); speak("Sorry, I couldn't reach Claude."); }
     } finally { busy = false; }
   }
 
   // ---- voice out ----
   function unlockAudio() { if (voiceReady) return; try { speechSynthesis.speak(new SpeechSynthesisUtterance(' ')); } catch {} voiceReady = true; }
-  function speak(t) { try { const u = new SpeechSynthesisUtterance(t); u.rate = 1.1; speechSynthesis.speak(u); } catch {} }
+  function speak(t) { if (aborted) return; try { const u = new SpeechSynthesisUtterance(t); u.rate = 1.1; speechSynthesis.speak(u); } catch {} }
   function waitSpeechDone() {
     return new Promise((res) => {
-      const t = setInterval(() => { if (!speechSynthesis.speaking) { clearInterval(t); res(); } }, 150);
+      const t = setInterval(() => { if (aborted || !speechSynthesis.speaking) { clearInterval(t); res(); } }, 150);
       setTimeout(() => { clearInterval(t); res(); }, 9000);
     });
   }
 
-  say(recog ? 'Double-tap anywhere to look and talk.' : 'Voice input unavailable on this browser — double-tap still describes the scene.');
+  say(recog ? 'Double-tap to look & talk · long-press or say "stop" to stop.' : 'Double-tap to describe the scene · long-press to stop.');
   return { destroy() { caption.remove(); try { recog && recog.stop(); } catch {} } };
 }
