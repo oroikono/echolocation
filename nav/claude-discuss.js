@@ -47,15 +47,26 @@ export function createDiscussion(opts = {}) {
   const usingProxy = cfg.endpoint && !/api\.anthropic\.com/i.test(cfg.endpoint);
   const available = () => usingProxy || !!(cfg.getApiKey && cfg.getApiKey());
 
-  // ---- minimal caption (non-blocking) ----
+  // ---- caption (non-blocking) with a dismiss (×) button ----
+  let dismissed = false;
   const caption = document.createElement('div');
   Object.assign(caption.style, {
     position: 'fixed', left: '12px', right: '12px', bottom: '12px', zIndex: '99999',
     font: '600 16px -apple-system,system-ui,sans-serif', color: '#fff', background: '#000a',
-    padding: '10px 12px', borderRadius: '10px', pointerEvents: 'none', whiteSpace: 'pre-wrap',
+    padding: '10px 36px 10px 12px', borderRadius: '10px', pointerEvents: 'none', whiteSpace: 'pre-wrap',
   });
+  const msg = document.createElement('span');
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = '×'; closeBtn.setAttribute('aria-label', 'hide message');
+  Object.assign(closeBtn.style, {
+    position: 'absolute', top: '6px', right: '6px', width: '24px', height: '24px',
+    borderRadius: '50%', border: 'none', background: '#cc1557', color: '#fff',
+    font: '700 15px system-ui', lineHeight: '24px', padding: '0', pointerEvents: 'auto', cursor: 'pointer',
+  });
+  closeBtn.addEventListener('click', (e) => { e.stopPropagation(); dismissed = true; caption.style.display = 'none'; });
+  caption.append(msg, closeBtn);
   document.body.appendChild(caption);
-  const say = (t) => { caption.textContent = t; cfg.onStatus(t); };
+  const say = (t) => { msg.textContent = t; cfg.onStatus(t); if (!dismissed) caption.style.display = ''; };
 
   // ---- gestures on window; ignore taps on real UI so host controls keep working ----
   const isUI = (t) => t && t.closest && t.closest('button,input,select,textarea,a,label,[role=button]');
@@ -102,6 +113,7 @@ export function createDiscussion(opts = {}) {
   async function onDoubleTap() {
     if (busy) return;
     if (!available()) return warnNoKey();
+    dismissed = false; caption.style.display = '';
     aborted = false; unlockAudio(); speechSynthesis.cancel();
     let frame, tries = 0;
     while (true) {
@@ -225,6 +237,7 @@ export function createDiscussion(opts = {}) {
     });
   }
 
-  say(recog ? 'Double-tap to look & talk · long-press or say "stop" to stop.' : 'Double-tap to describe the scene · long-press to stop.');
+  say(recog ? 'Double-tap to look & talk · long-press or say "stop" to stop. (× to hide)' : 'Double-tap to describe the scene · long-press to stop. (× to hide)');
+  setTimeout(() => { if (!busy && !listening && !dismissed) caption.style.display = 'none'; }, 6000); // auto-hide idle hint
   return { destroy() { caption.remove(); try { recog && recog.stop(); } catch {} } };
 }
