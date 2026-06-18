@@ -43,10 +43,11 @@ function setupZoom() {
   const caps = tr && tr.getCapabilities ? tr.getCapabilities() : null;
   const zc = $('zoom'), lbl = $('zoomlbl');
   if (caps && caps.zoom && caps.zoom.max > caps.zoom.min) {
-    zc.min = caps.zoom.min; zc.max = caps.zoom.max; zc.step = caps.zoom.step || 0.1;
-    const cur = (tr.getSettings && tr.getSettings().zoom) || caps.zoom.min;
-    zc.value = cur; zc.style.display = ''; lbl.style.display = '';
-    lbl.textContent = `zoom ${(+cur).toFixed(2)}× · min ${(+caps.zoom.min).toFixed(2)}×`;
+    const mn = caps.zoom.min;
+    zc.min = mn; zc.max = caps.zoom.max; zc.step = caps.zoom.step || 0.1;
+    zc.value = mn; zc.style.display = ''; lbl.style.display = '';
+    applyZoom(mn);                                   // default to most zoomed-out (widest FOV)
+    lbl.textContent = `zoom ${(+mn).toFixed(2)}× (widest) · max ${(+caps.zoom.max).toFixed(2)}×`;
   } else { zc.style.display = 'none'; lbl.style.display = ''; lbl.textContent = 'zoom not adjustable on this camera'; }
 }
 
