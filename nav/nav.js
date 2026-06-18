@@ -16,7 +16,7 @@ const depthCtx = $('depth').getContext('2d');
 const dthumb = document.createElement('canvas');
 const cap = document.createElement('canvas');
 
-let ctx = null, node = null, worker = null, running = false, busy = false, dists = new Array(N).fill(PARAMS.far_m), backend = '', stream = null;
+let ctx = null, node = null, worker = null, running = false, busy = false, dists = new Array(N).fill(PARAMS.far_m), backend = '', stream = null, lastT = 0, fps = 0;
 
 const setStatus = (t) => { statusEl.textContent = t; };
 
@@ -74,8 +74,9 @@ function startWorker() {
       drawDepth(m);
       drawGrid();
       busy = false;
+      const now = performance.now(); if (lastT) fps = 0.85 * fps + 0.15 * (1000 / Math.max(1, now - lastT)); lastT = now;
       const open = dists.map((d, i) => [d, i]).reduce((a, b) => (b[0] > a[0] ? b : a))[1];
-      setStatus(`${backend.toUpperCase()} · ${PARAMS.mode} · open sector ${open + 1}/7 · far ${PARAMS.far_m.toFixed(1)}m`);
+      setStatus(`${backend.toUpperCase()} · ${fps.toFixed(1)} fps · ${PARAMS.mode} · open ${open + 1}/7 · far ${PARAMS.far_m.toFixed(1)}m`);
       if (running) requestAnimationFrame(loop);
     }
   };
