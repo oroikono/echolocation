@@ -4,7 +4,7 @@
 
 import { createDiscussion } from './claude-discuss.js';
 
-const CAP_W = 384;                 // px fed to the depth model (small = fast)
+const CAP_W = 322;                 // px fed to the depth model (matches desktop size)
 const N = 7;
 const ROI_TOP = 0.10, ROI_BOTTOM = 0.80;
 const PARAMS = { mode: 'continuous', near_m: 0.5, far_m: 3.0, side_hz: 300, center_hz: 800, falloff: 2.0, sweep_period: 0.3, master: 0.8 };
@@ -16,9 +16,26 @@ const depthCtx = $('depth').getContext('2d');
 const dthumb = document.createElement('canvas');
 const cap = document.createElement('canvas');
 
-let ctx = null, node = null, worker = null, running = false, busy = false, dists = new Array(N).fill(PARAMS.far_m), backend = '';
+let ctx = null, node = null, worker = null, running = false, busy = false, dists = new Array(N).fill(PARAMS.far_m), backend = '', stream = null;
 
 const setStatus = (t) => { statusEl.textContent = t; };
+
+async function openCamera(deviceId) {
+  if (stream) stream.getTracks().forEach((t) => t.stop());
+  const v = deviceId ? { deviceId: { exact: deviceId } } : { facingMode: { ideal: 'environment' } };
+  v.width = { ideal: 960 };
+  stream = await navigator.mediaDevices.getUserMedia({ video: v, audio: false });
+  video.srcObject = stream; await video.play();
+}
+async function listCameras() {
+  try {
+    const devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
+    const sel = $('camsel'); if (!sel || !devs.length) return;
+    sel.innerHTML = '';
+    devs.forEach((d, i) => { const o = document.createElement('option'); o.value = d.deviceId; o.textContent = d.label || ('camera ' + (i + 1)); sel.appendChild(o); });
+    sel.style.display = devs.length > 1 ? '' : 'none';   // pick the 0.5x ultra-wide here
+  } catch {}
+}
 
 async function startAudio() {
   ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -92,8 +109,8 @@ async function start() {
   if (running) return;
   startBtn.disabled = true; setStatus('requesting camera…');
   try {
-    const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } }, audio: false });
-    video.srcObject = s; await video.play();
+    await openCamera($('camsel').value || null);
+    await listCameras();
     await startAudio();
     startWorker();
     running = true; startBtn.textContent = 'running';
@@ -111,6 +128,7 @@ for (const m of ['continuous', 'pulse', 'sweep']) {
     document.querySelectorAll('.mode').forEach((b) => b.classList.toggle('on', b.id === 'm_' + m));
   });
 }
+$('camsel').addEventListener('change', async () => { if (running) { try { await openCamera($('camsel').value); } catch {} } });
 $('far_dn').addEventListener('click', () => setFar(-0.5));
 $('far_up').addEventListener('click', () => setFar(+0.5));
 function setFar(d) { PARAMS.far_m = Math.max(2.0, Math.min(15.0, PARAMS.far_m + d)); node && node.port.postMessage({ params: { far_m: PARAMS.far_m } }); }
