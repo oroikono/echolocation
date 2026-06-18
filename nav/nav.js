@@ -61,7 +61,8 @@ async function startAudio() {
 }
 
 function startWorker() {
-  worker = new Worker('./depth-worker.js', { type: 'module' });
+  const fresh = new URLSearchParams(location.search).has('fresh') ? '?fresh=1' : '';
+  worker = new Worker('./depth-worker.js' + fresh, { type: 'module' });
   worker.onmessage = (e) => {
     const m = e.data;
     if (m.type === 'progress') setStatus(`loading model… ${m.pct}%`);

@@ -6,6 +6,8 @@ import { pipeline, RawImage, env } from 'https://cdn.jsdelivr.net/npm/@huggingfa
 
 env.allowLocalModels = true;
 env.localModelPath = new URL('models/', self.location.href).href;
+// dev flag: open the app with ?fresh=1 to bypass the model cache (no manual cache-clearing while iterating)
+if (new URLSearchParams(self.location.search).has('fresh')) env.useBrowserCache = false;
 
 const MODEL = 'depth-anything-v2-metric-indoor-small';
 let estimator = null, backend = '';
